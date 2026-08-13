@@ -29,7 +29,7 @@ help: ## Show this help
 # ---------------------------------------------------------------------------
 
 .PHONY: dev
-dev: db-up migrate-up node_modules ## Run the API and the web dev server against a local Postgres
+dev: db-up migrate-up $(WEB)/node_modules ## Run the API and the web dev server against a local Postgres
 	@echo "api → http://localhost:8080   web → http://localhost:5173"
 	@trap 'kill 0' EXIT INT TERM; \
 		go run ./cmd/nusa serve & \
@@ -56,9 +56,12 @@ up: ## Build and run everything in containers
 down: ## Stop everything. Add ARGS=-v to also delete the database volume
 	$(COMPOSE) down $(ARGS)
 
-node_modules: $(WEB)/package-lock.json
+# The target must be the real directory, not a bare name, or make never sees it
+# and reinstalls on every invocation. npm ci wipes node_modules first, so that
+# mistake costs a full reinstall before every test run.
+$(WEB)/node_modules: $(WEB)/package-lock.json
 	cd $(WEB) && npm ci
-	@touch $(WEB)/node_modules
+	@touch $@
 
 # ---------------------------------------------------------------------------
 # Quality
@@ -72,7 +75,7 @@ test-go: ## Run Go tests with the race detector
 	go test -race ./...
 
 .PHONY: test-web
-test-web: node_modules ## Run frontend tests
+test-web: $(WEB)/node_modules ## Run frontend tests
 	cd $(WEB) && npm test
 
 .PHONY: lint
@@ -83,7 +86,7 @@ lint-go: $(GOLANGCI) ## Run golangci-lint
 	$(GOLANGCI) run
 
 .PHONY: lint-web
-lint-web: node_modules ## Type-check the frontend
+lint-web: $(WEB)/node_modules ## Type-check the frontend
 	cd $(WEB) && npm run typecheck
 
 .PHONY: fmt
@@ -111,7 +114,7 @@ build-go:
 	go build -trimpath -o bin/nusa ./cmd/nusa
 
 .PHONY: build-web
-build-web: node_modules
+build-web: $(WEB)/node_modules
 	cd $(WEB) && npm run build
 
 # ---------------------------------------------------------------------------
