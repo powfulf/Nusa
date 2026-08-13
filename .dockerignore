@@ -1,0 +1,17 @@
+.git/
+.github/
+.dev/
+node_modules/
+web/node_modules/
+web/dist/
+web/coverage/
+docs/
+plugins/
+tools/
+bin/
+.env
+.env.*
+!.env.example
+*.md
+Makefile
+docker-compose.yml

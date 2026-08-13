@@ -1,0 +1,29 @@
+# Local working notes — not part of the published project.
+.dev/
+CLAUDE.md
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Go
+/bin/
+/nusa
+/nusa.exe
+*.test
+*.out
+coverage.*
+
+# Node / frontend
+node_modules/
+web/dist/
+web/coverage/
+web/.vite/
+*.tsbuildinfo
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

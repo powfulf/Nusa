@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "Nusa",
+    "tagline": "Your money, honestly accounted for."
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "id": "Bahasa Indonesia"
+  },
+  "health": {
+    "title": "Server status",
+    "checking": "Checking the server…",
+    "ok": "The server is running.",
+    "unavailable": "The server cannot reach its database.",
+    "unreachable": "Cannot reach the server.",
+    "database": "Database",
+    "schemaVersion": "Schema version",
+    "retry": "Check again"
+  },
+  "milestone": {
+    "notice": "This is the project skeleton. There is nothing to record yet."
+  }
+}

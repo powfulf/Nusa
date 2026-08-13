@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Design tokens — "Frutiger Aero dark".
+ *
+ * Governing principle: Aero on the shell, calm in the data. Navigation,
+ * headers, summary cards and buttons get glass and gloss. Dense data surfaces
+ * — registers, tables, numeric forms — sit on opaque, high-contrast surfaces
+ * with no gradients.
+ *
+ * Defined here in full for milestone M0. The primitives that consume them
+ * arrive in M3.
+ */
+:root[data-theme='dark'] {
+  /* base */
+  --bg-deep: #050f14; /* not pure black — that kills the Aero feel */
+  --bg-ambient:
+    radial-gradient(60% 45% at 12% 8%, rgb(56 224 208 / 8%), transparent 70%),
+    radial-gradient(50% 40% at 88% 22%, rgb(168 227 75 / 6%), transparent 72%),
+    radial-gradient(70% 55% at 50% 100%, rgb(56 224 208 / 5%), transparent 75%);
+
+  /* surfaces */
+  --surface-glass: rgb(18 42 52 / 55%);
+  --surface-data: #0d1f27; /* OPAQUE. no transparency. */
+  --surface-raised: #12262f;
+  --border-bevel: rgb(255 255 255 / 12%); /* 1px top edge = the gloss */
+
+  /* accents */
+  --accent: #38e0d0; /* aqua — actions, links, focus */
+  --accent-alt: #a8e34b; /* lime — positive: surplus, goal reached */
+  --warn: #f0b429; /* amber */
+  --danger: #f2643f; /* coral — deliberately NOT alarm red */
+
+  /* text */
+  --text-primary: #e8f4f6;
+  --text-secondary: #8fa9b3;
+  --text-muted: #5c7480;
+
+  /* shape */
+  --radius-card: 20px;
+  --radius-button: 12px;
+  --radius-input: 8px;
+
+  /* effects */
+  --blur-glass: 20px;
+  --gloss: linear-gradient(to bottom, rgb(255 255 255 / 12%), transparent 40%);
+  --elevation-glow: 0 8px 32px -8px rgb(56 224 208 / 25%);
+}
+
+/*
+ * The reduced-effects escape hatch. Setting data-effects="reduced" on the root
+ * neutralises blur, gloss and the ambient layer without any component knowing
+ * about it. The settings toggle that flips this attribute ships in M3.
+ */
+:root[data-effects='reduced'] {
+  --bg-ambient: none;
+  --gloss: none;
+  --blur-glass: 0px;
+  --elevation-glow: none;
+  --surface-glass: #12262f; /* opaque, so contrast stays predictable */
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@layer base {
+  body {
+    @apply bg-bg-deep text-fg-primary;
+
+    min-block-size: 100dvh;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  /* Every numeral in the product lines up in its column. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}

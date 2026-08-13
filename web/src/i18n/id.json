@@ -1,0 +1,24 @@
+{
+  "app": {
+    "name": "Nusa",
+    "tagline": "Uangmu, dicatat dengan jujur."
+  },
+  "language": {
+    "label": "Bahasa",
+    "en": "English",
+    "id": "Bahasa Indonesia"
+  },
+  "health": {
+    "title": "Status server",
+    "checking": "Sedang memeriksa server…",
+    "ok": "Server berjalan normal.",
+    "unavailable": "Server tidak bisa menghubungi basis datanya.",
+    "unreachable": "Server tidak bisa dihubungi.",
+    "database": "Basis data",
+    "schemaVersion": "Versi skema",
+    "retry": "Periksa lagi"
+  },
+  "milestone": {
+    "notice": "Ini baru kerangka proyek. Belum ada yang bisa dicatat."
+  }
+}

@@ -1,0 +1,59 @@
+version: '2'
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - depguard
+    - errorlint
+    - gosec
+    - misspell
+    - noctx
+    - revive
+    - unconvert
+
+  settings:
+    depguard:
+      rules:
+        # Enforces the one architectural rule that everything else rests on:
+        # the domain core is pure. Catching a stray import here is far cheaper
+        # than discovering during M6 that the ledger cannot be tested without a
+        # database.
+        ledger-is-pure-domain:
+          files:
+            - '**/internal/ledger/**'
+          deny:
+            - pkg: database/sql
+              desc: internal/ledger is pure domain — persistence belongs in internal/store
+            - pkg: net/http
+              desc: internal/ledger is pure domain — HTTP belongs in internal/api
+            - pkg: github.com/nusa-app/nusa/internal/config
+              desc: internal/ledger must not depend on configuration
+            - pkg: github.com/nusa-app/nusa/internal/store
+              desc: dependencies point inward — store may import ledger, never the reverse
+
+    revive:
+      rules:
+        - name: exported
+          disabled: false
+
+  exclusions:
+    generated: lax
+    rules:
+      # Test fixtures routinely contain things gosec dislikes, such as
+      # hardcoded example credentials.
+      - path: _test\.go
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/nusa-app/nusa

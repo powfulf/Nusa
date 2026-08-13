@@ -1,0 +1,20 @@
+<!doctype html>
+<!--
+  data-theme is set here rather than by script so the correct palette is in
+  effect before first paint. Light mode is planned; the token names stay
+  theme-agnostic so adding it is a second block of custom properties.
+-->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <!-- Substituted at build time from the message catalog, so the product
+         name has exactly one source. Updated per language at runtime. -->
+    <title>%APP_NAME%</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
