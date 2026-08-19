@@ -1,4 +1,4 @@
-module github.com/nusa-app/nusa/tools
+module github.com/GaffaQ/Nusa/tools
 
 go 1.26.0
 

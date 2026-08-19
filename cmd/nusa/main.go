@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nusa-app/nusa/internal/api"
-	"github.com/nusa-app/nusa/internal/brand"
-	"github.com/nusa-app/nusa/internal/config"
-	"github.com/nusa-app/nusa/internal/store"
+	"github.com/GaffaQ/Nusa/internal/api"
+	"github.com/GaffaQ/Nusa/internal/brand"
+	"github.com/GaffaQ/Nusa/internal/config"
+	"github.com/GaffaQ/Nusa/internal/store"
 )
 
 func main() {

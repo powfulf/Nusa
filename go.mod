@@ -1,4 +1,4 @@
-module github.com/nusa-app/nusa
+module github.com/GaffaQ/Nusa
 
 go 1.22
 

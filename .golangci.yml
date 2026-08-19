@@ -30,9 +30,9 @@ linters:
               desc: internal/ledger is pure domain — persistence belongs in internal/store
             - pkg: net/http
               desc: internal/ledger is pure domain — HTTP belongs in internal/api
-            - pkg: github.com/nusa-app/nusa/internal/config
+            - pkg: github.com/GaffaQ/Nusa/internal/config
               desc: internal/ledger must not depend on configuration
-            - pkg: github.com/nusa-app/nusa/internal/store
+            - pkg: github.com/GaffaQ/Nusa/internal/store
               desc: dependencies point inward — store may import ledger, never the reverse
 
     revive:
@@ -56,4 +56,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/nusa-app/nusa
+        - github.com/GaffaQ/Nusa

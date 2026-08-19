@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/nusa-app/nusa/internal/ledger"
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 // Buying USD 100,00 for Rp 1.600.000,00 at 16.000 rupiah to the dollar. In

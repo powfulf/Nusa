@@ -19,7 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/nusa-app/nusa/internal/ledger"
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 // Identities are UUIDv7 (§5.6), which is unreadable in a test. These helpers

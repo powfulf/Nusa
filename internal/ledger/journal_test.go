@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/nusa-app/nusa/internal/ledger"
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 // spend builds a balanced two-line transaction: money out of an account, into

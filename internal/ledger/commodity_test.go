@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/nusa-app/nusa/internal/ledger"
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 func TestNewCommodityValidatesItsInput(t *testing.T) {

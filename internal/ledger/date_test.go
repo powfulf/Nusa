@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/nusa-app/nusa/internal/ledger"
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 // time.Date turns 30 February into 1 or 2 March without complaint. A date is a

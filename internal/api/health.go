@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/nusa-app/nusa/internal/brand"
+	"github.com/GaffaQ/Nusa/internal/brand"
 )
 
 // DatabaseChecker reports whether the database is reachable and which schema

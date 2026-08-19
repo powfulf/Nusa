@@ -49,7 +49,9 @@ A self-hostable, open-source personal finance application. One correct double-en
 
 `go mod tidy` raises the `go` directive on its own when any dependency — including a *test* dependency of a dependency, which nothing we ship ever executes — asks for a newer one. Always run it as `go mod tidy -go=1.22`, and pin the offending module back rather than accepting the bump. CI verifies the directive against the version it installs and runs `GOTOOLCHAIN=local` everywhere except the steps that build `tools/`; without that asymmetry Go would simply fetch the newer toolchain and every job would pass.
 
-**Module path:** `github.com/nusa-app/nusa` — this is a **codename**. The product name is not final. Keep it in `internal/brand/brand.go` as constants and never hardcode "Nusa" in UI strings; all user-facing text goes through i18n.
+**Module path:** `github.com/GaffaQ/Nusa`. It must match the repository path **exactly, including the capital N**. Go treats a module path as case-sensitive while GitHub does not, so `github.com/gaffaq/nusa` resolves in a browser and then fails to match what the module proxy has recorded. Never normalise it to lowercase.
+
+**The module path and the product name are separate things.** The product name lives in `internal/brand/brand.go` as constants and is not final; never hardcode "Nusa" in UI strings, because all user-facing text goes through i18n. Renaming the product does not move the module, and moving the repository does not rename the product.
 
 **Environment variables use the `NUSA_` prefix.** This is a deliberate exception to the brand-isolation rule: env var names cannot be resolved at runtime. A future rename must update the prefix here and in `.env.example`.
 
