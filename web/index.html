@@ -15,6 +15,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light" />
 
+    <!--
+      Only the two faces that paint above the fold, and only their latin
+      subsets: the page heading in Plus Jakarta Sans 700 and body text in
+      DM Sans 400. Preloading more would compete for bandwidth with the very
+      thing it is meant to accelerate — every other weight and the latin-ext
+      subsets load on demand, which is what font-display: swap makes safe.
+
+      Fonts are served from this origin. Nusa never requests them from a CDN.
+    -->
+    <link
+      rel="preload"
+      href="/fonts/plus-jakarta-sans-latin-700-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/dm-sans-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
 
     <!-- Substituted at build time from the message catalog, so the product
          name has exactly one source. Updated per language at runtime. -->
