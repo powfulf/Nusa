@@ -624,9 +624,36 @@ Verified after the rebase, and it does not match what is sometimes assumed:
 - SPDX headers are consistent: 27 MIT-headed Go files, all inside
   `internal/ledger`, none outside it; 23 AGPL-3.0-only elsewhere.
 
-Two gaps follow from that and are not yet closed: the AGPL copyright line is
-still a placeholder, and the licence split is undocumented for anyone who does
-not read this file.
+The unfilled AGPL copyright line stays that way deliberately: the `LICENSE`
+files are the unmodified upstream texts, and editing licence text is how
+automatic licence detection breaks. Copyright is asserted per file through the
+SPDX headers instead. `internal/ledger/LICENSE` attributing to *Nusa
+contributors* rather than to one person is likewise deliberate — as soon as
+there is a second contributor it is simply what is true, and it never needs
+updating.
+
+#### `LICENSING.md` was missing from M0 until now
+
+The two-licence split shipped in M0 with nothing in the repository explaining
+it. §6 of this file stated it, but this file is documentation for people
+*working on* Nusa, not for someone deciding whether they may use the ledger in
+their own project — which is the entire point of making it MIT.
+
+It survived M0's verification because M0's checklist never mentioned it. Every
+item on that list was checked and passed; a licensing document was not an item,
+so its absence produced no failure and no warning. The gap was found only when
+a later session went looking for a file it had been told existed.
+> **Rule.** A verification list only proves the things on it. Absence of
+> failures is not evidence of completeness, and the things most likely to be
+> missing are the ones nobody thought to check for. When adding a deliverable,
+> add its check at the same time.
+
+`LICENSING.md` now carries the split, the reasoning behind where the line is
+drawn, and the SPDX convention — including its one exception: the four
+sqlc-generated files in `internal/store` carry no SPDX header, because
+`sqlc generate` would strip a hand-added one and CI's regeneration-drift check
+would then fail. They are AGPL-3.0-only as part of `internal/store`. All 50
+hand-written Go files do carry a header.
 
 #### Environment limitation: `make` has never run here
 
@@ -666,10 +693,13 @@ regression, `git status` insists nothing changed, and running the formatter
 "fixes" files that were never broken. golangci-lint's cache makes it worse by
 reporting an arbitrary subset rather than all of them.
 
-The durable fix is a `.gitattributes` pinning `eol=lf` for source files, which
-would make the local working tree match what CI checks out. It has not been
-added, because it changes the checkout for every contributor and that is a
-decision for the maintainer rather than a side effect of a rename.
+**Resolved.** `.gitattributes` now pins `text=auto eol=lf`, lists the
+extensions this project actually uses rather than leaving them to git's guess,
+and marks binary formats — fonts above all — so eol conversion never touches
+them. `git add --renormalise .` changed nothing, which confirmed the stored
+blobs had been LF all along; the fix was to the working tree, not the history.
+After re-materialising the checkout, all 54 Go files are LF and
+`golangci-lint run` passes locally with a cleared cache.
 > **Rule.** Before treating a formatter or linter failure as a code problem on
 > Windows, check whether the committed blob differs from the working tree only
 > in line endings. Verify against `git show HEAD:<file>`, never against the
