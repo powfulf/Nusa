@@ -65,9 +65,13 @@ M11 AI layer · M12 release readiness.
 
 ## License
 
-AGPL-3.0, except `internal/ledger/` and the Country Pack specification, which are
-MIT so that the accounting core can be reused freely. See [LICENSE](LICENSE) and
-[internal/ledger/LICENSE](internal/ledger/LICENSE).
+AGPL-3.0-only, except `internal/ledger/` and the Country Pack specification,
+which are MIT so that the accounting core can be reused freely.
+
+**[LICENSING.md](LICENSING.md) explains the split and why it is drawn there.**
+Full texts: [LICENSE](LICENSE) (AGPL-3.0-only) and
+[internal/ledger/LICENSE](internal/ledger/LICENSE) (MIT). Every source file
+carries an SPDX identifier, which is authoritative for that file.
 
 ## Contributing
 
