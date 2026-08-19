@@ -1,0 +1,83 @@
+# Line endings and binary handling.
+#
+# Without this file, a contributor whose git has core.autocrlf=true gets a CRLF
+# working tree while the repository stores LF. Everything still commits
+# correctly, so `git status` stays clean — but gofmt reports every Go file as
+# unformatted, and `golangci-lint run` fails locally on code that is perfectly
+# fine in CI. A lint gate that fails for a reason unrelated to the code is a
+# gate people learn to ignore, which makes it worse than no gate at all.
+#
+# `text=auto eol=lf` means: git decides what is text, and every text file is LF
+# in the repository AND in the working tree, on every platform. The extensions
+# below are then listed explicitly, so nothing important depends on git's
+# guess.
+#
+# Anything binary is marked so, because letting eol conversion near a font or
+# an image corrupts it silently.
+
+* text=auto eol=lf
+
+# ---------------------------------------------------------------------------
+# Source
+# ---------------------------------------------------------------------------
+*.go        text eol=lf
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.mjs       text eol=lf
+*.css       text eol=lf
+*.html      text eol=lf
+*.sql       text eol=lf
+
+# ---------------------------------------------------------------------------
+# Data and configuration
+# ---------------------------------------------------------------------------
+*.json      text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.md        text eol=lf
+*.mod       text eol=lf
+*.sum       text eol=lf
+
+# Repository control files. M0 shipped a UTF-16 .gitignore that git could not
+# read, so every rule in it silently did nothing; these are pinned for the same
+# reason the encoding rule exists.
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.dockerignore   text eol=lf
+.env.example    text eol=lf
+
+# Extensionless files git would otherwise have to guess about.
+Dockerfile  text eol=lf
+Makefile    text eol=lf
+LICENSE     text eol=lf
+
+# ---------------------------------------------------------------------------
+# Binary — never touched by eol conversion, never diffed as text
+# ---------------------------------------------------------------------------
+*.woff2     binary
+*.woff      binary
+*.ttf       binary
+*.otf       binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.pdf       binary
+
+# SVG is text and benefits from diffing, unlike the raster formats above.
+*.svg       text eol=lf
+
+# ---------------------------------------------------------------------------
+# Generated. Still LF, but collapsed in diffs and excluded from language stats
+# so a lock file does not drown a review.
+# ---------------------------------------------------------------------------
+web/package-lock.json   text eol=lf linguist-generated=true
+go.sum                  text eol=lf linguist-generated=true
+tools/go.sum            text eol=lf linguist-generated=true
+internal/store/*.sql.go text eol=lf linguist-generated=true
+internal/store/models.go   text eol=lf linguist-generated=true
+internal/store/querier.go  text eol=lf linguist-generated=true
+internal/store/db.go       text eol=lf linguist-generated=true
