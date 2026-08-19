@@ -133,6 +133,18 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # DESIGN.md is the only place a visual decision is made. These two keep
+      # it that way: the first rejects a raw colour, font or length that got
+      # written straight into a component, the second recomputes every
+      # text/surface pairing against the thresholds in DESIGN.md's
+      # accessibility floor. Tailwind emits nothing for an unknown colour class
+      # rather than failing, so the config alone would not catch a stray value.
+      - name: Design tokens
+        run: npm run lint:tokens
+
+      - name: Contrast
+        run: npm run test:contrast
+
       - name: Test
         run: npm test
 

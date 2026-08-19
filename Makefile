@@ -86,8 +86,10 @@ lint-go: $(GOLANGCI) ## Run golangci-lint
 	$(GOLANGCI) run
 
 .PHONY: lint-web
-lint-web: $(WEB)/node_modules ## Type-check the frontend
+lint-web: $(WEB)/node_modules ## Type-check the frontend and verify design tokens
 	cd $(WEB) && npm run typecheck
+	cd $(WEB) && npm run lint:tokens
+	cd $(WEB) && npm run test:contrast
 
 .PHONY: fmt
 fmt: $(GOLANGCI) ## Format Go sources
