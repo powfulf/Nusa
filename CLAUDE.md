@@ -552,3 +552,38 @@ require adding its subset before that translation ships.
 | Automated checks for the non-contrast parts of §8.2 — logical properties, tabular numerals, touch target sizes | M3 |
 | Playwright coverage of the 360px floor and the table-to-card reflow | M3–M4 |
 
+### Repository move — `github.com/GaffaQ/Nusa`
+
+The project moved from the placeholder `github.com/nusa-app/nusa` to its real
+home. Both modules were renamed, along with every import, the depguard rules in
+`.golangci.yml`, and the goimports local prefix.
+
+**The capital N is load-bearing.** Go treats a module path as case-sensitive.
+GitHub does not treat a URL that way, so `github.com/gaffaq/nusa` resolves
+perfectly in a browser and then fails to match what the module proxy recorded
+for `github.com/GaffaQ/Nusa`. The two disagree only once someone else tries to
+depend on the module, or once the proxy caches the first spelling it saw — long
+after whoever typed the lowercase version has moved on. The path is never
+normalised.
+> **Rule.** A module path is copied from the repository exactly, including
+> case. Any tooling that lowercases it is wrong for this field.
+
+The rename does not touch the product name. `internal/brand/brand.go` remains
+the only place the name is spelled in Go source, and §3 now states the
+separation directly rather than implying it: renaming the product does not move
+the module, and moving the repository does not rename the product.
+
+The depguard rules were re-verified rather than assumed: importing
+`internal/store` into `internal/ledger` was confirmed to fail against the new
+path, then reverted. A path rename is exactly the kind of change that can leave
+a rule matching nothing while still reporting success.
+
+#### Known, deliberately not fixed
+
+`brand.RepositoryURL` still reads `https://github.com/nusa-app/nusa`. It is
+surfaced in health responses and will appear in the OpenAPI document, so it
+currently advertises a repository that does not exist. It was left alone
+because the instruction covering this change put `internal/brand/brand.go` off
+limits, and the constant sits in that file. It is a one-line change awaiting a
+decision, not an oversight.
+
