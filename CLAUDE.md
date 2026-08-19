@@ -578,12 +578,100 @@ The depguard rules were re-verified rather than assumed: importing
 path, then reverted. A path rename is exactly the kind of change that can leave
 a rule matching nothing while still reporting success.
 
-#### Known, deliberately not fixed
+#### `brand.RepositoryURL` and the three constants
 
-`brand.RepositoryURL` still reads `https://github.com/nusa-app/nusa`. It is
-surfaced in health responses and will appear in the OpenAPI document, so it
-currently advertises a repository that does not exist. It was left alone
-because the instruction covering this change put `internal/brand/brand.go` off
-limits, and the constant sits in that file. It is a one-line change awaiting a
-decision, not an oversight.
+`internal/brand/brand.go` holds three constants that look alike and are not.
+`Name` and `Slug` are the product's identity and move only when the product is
+renamed. `RepositoryURL` is where the source lives and moves when the
+repository does. The rename briefly left `RepositoryURL` pointing at a
+repository that no longer existed, advertised through the health endpoint,
+because "do not touch brand.go" was read as covering all three. The file now
+says which is which, at the top of the const block, so the next reader does not
+have to reconstruct the distinction.
+
+#### Reconciling with the remote's initial commit
+
+GitHub had created the repository with an `Initial commit` containing an
+AGPL-3.0 `LICENSE`, so the two histories had diverged before the first push.
+Resolved by rebasing local work onto it rather than force-pushing over it.
+
+The `LICENSE` conflict is worth recording because the two files were nearly
+identical: both the genuine AGPL-3.0 text, differing only in where two lines of
+the closing "How to Apply These Terms" appendix wrapped. The local version was
+kept.
+
+Note for anyone resolving a rebase conflict here: during a rebase the sides are
+inverted. `--ours` is the branch being replayed *onto* (the remote), and
+`--theirs` is the commit being replayed (the local work). Taking `--ours` to
+mean "our work" is the natural reading and the wrong one.
+> **Rule.** Compare conflicting files by their git object hashes, not by
+> diffing working-tree files. On Windows the working tree is CRLF and `git
+> show` emits LF, so a byte-identical file diffs as entirely different and a
+> correct resolution looks like a failed one.
+
+#### What the licence structure actually is
+
+Verified after the rebase, and it does not match what is sometimes assumed:
+
+- `LICENSE` at the root is AGPL-3.0. It is the **unmodified** upstream text:
+  the appendix still carries the unfilled `Copyright (C) <year>  <name of
+  author>` placeholder, and no personal or project copyright line has ever been
+  added. The only copyright notice in the file is the FSF's on the licence text
+  itself.
+- `internal/ledger/LICENSE` is MIT, `Copyright (c) 2026 Nusa contributors`.
+- **There is no `LICENSING.md`.** Nothing in the repository explains the split
+  between the AGPL core and the MIT ledger except §6 of this file.
+- SPDX headers are consistent: 27 MIT-headed Go files, all inside
+  `internal/ledger`, none outside it; 23 AGPL-3.0-only elsewhere.
+
+Two gaps follow from that and are not yet closed: the AGPL copyright line is
+still a placeholder, and the licence split is undocumented for anyone who does
+not read this file.
+
+#### Environment limitation: `make` has never run here
+
+`make` is not installed on the development machine this work was done on. Every
+report of "tests pass" or "lint passes" in this session refers to the commands
+*behind* the Makefile targets — `go test -race ./...`, `./bin/golangci-lint
+run`, `npm run build` — not to `make test` or `make lint` themselves.
+
+**The Makefile is therefore unverified.** M0 already found one bug in it that
+only running the real target could expose (a prerequisite named `node_modules`
+that never matched `web/node_modules`, causing a full reinstall before every
+test run). A second bug of that kind would still be invisible here.
+
+CI runs the real targets, so the first push is also the first genuine test of
+the Makefile. Treat a CI failure in that area as expected information rather
+than as a surprise.
+> **Rule.** Report the command that was actually run. "The commands behind the
+> target pass" and "the target passes" are different claims, and the gap
+> between them is exactly where the M0 Makefile bug lived.
+
+#### Environment limitation: line endings on Windows
+
+`core.autocrlf=true` on the development machine and no `.gitattributes` to
+override it. Git therefore rewrites every text file to CRLF on checkout and
+back to LF on commit.
+
+The committed bytes are correct — all 54 Go blobs in `HEAD` are LF, and gofmt
+accepts every one of them, so CI on Linux is unaffected. But **`golangci-lint
+run` fails locally on every Go file after any operation that re-materialises
+the working tree**, such as the rebase that reconciled with the remote's
+initial commit: gofmt sees CRLF and reports the whole file as unformatted,
+while `git status` shows nothing modified because git converts it back before
+comparing.
+
+This is confusing in a specific way: the lint failure looks like a real
+regression, `git status` insists nothing changed, and running the formatter
+"fixes" files that were never broken. golangci-lint's cache makes it worse by
+reporting an arbitrary subset rather than all of them.
+
+The durable fix is a `.gitattributes` pinning `eol=lf` for source files, which
+would make the local working tree match what CI checks out. It has not been
+added, because it changes the checkout for every contributor and that is a
+decision for the maintainer rather than a side effect of a rename.
+> **Rule.** Before treating a formatter or linter failure as a code problem on
+> Windows, check whether the committed blob differs from the working tree only
+> in line endings. Verify against `git show HEAD:<file>`, never against the
+> file on disk.
 
