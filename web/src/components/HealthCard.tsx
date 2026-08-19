@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, CheckCircle2, Loader2, XCircle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { fetchHealth } from '../api/health'
@@ -6,8 +7,10 @@ import { fetchHealth } from '../api/health'
 /**
  * Reports whether the server and its database are reachable.
  *
- * This sits on a data surface: opaque, high contrast, no gradients. Status is
- * never carried by colour alone — every state has a symbol and a sentence.
+ * Every state carries an icon and a sentence as well as a colour, because
+ * colour is never the sole carrier of meaning. The icons use the CONTENT value
+ * of their status colour, not the FILL value — an icon that conveys something
+ * has to be readable, and the fill values do not clear 3:1.
  */
 export function HealthCard() {
   const { t } = useTranslation()
@@ -19,42 +22,45 @@ export function HealthCard() {
   })
 
   const state = isPending
-    ? { symbol: '…', tone: 'text-fg-secondary', message: t('health.checking') }
+    ? { Icon: Loader2, tone: 'text-text-secondary', message: t('health.checking') }
     : error
-      ? { symbol: '×', tone: 'text-danger', message: t('health.unreachable') }
+      ? { Icon: XCircle, tone: 'text-error-content', message: t('health.unreachable') }
       : data?.status === 'ok'
-        ? { symbol: '✓', tone: 'text-accent-alt', message: t('health.ok') }
-        : { symbol: '!', tone: 'text-warn', message: t('health.unavailable') }
+        ? { Icon: CheckCircle2, tone: 'text-success-content', message: t('health.ok') }
+        : { Icon: AlertTriangle, tone: 'text-warning-content', message: t('health.unavailable') }
 
   const schemaVersion = data?.checks.database.schema_version
 
   return (
-    <section className="rounded-card border border-bevel bg-surface-data p-6">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-fg-muted">
+    <section className="rounded border border-border-subtle bg-surface p-lg">
+      <h2 className="text-caption font-medium uppercase tracking-wide text-text-secondary">
         {t('health.title')}
       </h2>
 
-      <p aria-live="polite" className="mt-3 flex items-center gap-3 text-lg">
-        <span aria-hidden="true" className={`${state.tone} text-2xl leading-none`}>
-          {state.symbol}
-        </span>
-        <span className="text-fg-primary">{state.message}</span>
+      <p aria-live="polite" className="mt-sm flex items-center gap-sm text-body-lg">
+        <state.Icon aria-hidden="true" size={20} strokeWidth={2} className={state.tone} />
+        <span className="text-text-primary">{state.message}</span>
       </p>
 
       {schemaVersion !== undefined && (
-        <dl className="mt-5 border-t border-bevel pt-4 text-sm">
-          <div className="flex items-baseline justify-between gap-4">
-            <dt className="text-fg-secondary">{t('health.schemaVersion')}</dt>
-            <dd className="tabular text-fg-primary">{schemaVersion}</dd>
+        <dl className="mt-md border-t border-border-subtle pt-md text-body-sm">
+          <div className="flex items-baseline justify-between gap-md">
+            <dt className="text-text-muted">{t('health.schemaVersion')}</dt>
+            <dd className="numeric text-text-primary">{schemaVersion}</dd>
           </div>
         </dl>
       )}
 
+      {/*
+        A labelled control, so its border is a supporting cue rather than the
+        only thing identifying it. The fill also differs from the card behind
+        it, which is the second indicator DESIGN.md requires.
+      */}
       <button
         type="button"
         onClick={() => void refetch()}
         disabled={isFetching}
-        className="mt-5 rounded-button bg-surface-raised px-4 py-2 text-sm text-fg-primary ring-1 ring-bevel transition-opacity hover:opacity-90 disabled:opacity-50"
+        className="mt-md min-h-touch rounded bg-control-primary px-md py-sm text-body-sm text-control-primary-text transition-colors duration-fast ease-standard hover:bg-control-primary-hover disabled:cursor-not-allowed disabled:opacity-40 md:min-h-0 focus-inverse"
       >
         {t('health.retry')}
       </button>

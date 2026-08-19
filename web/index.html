@@ -1,14 +1,21 @@
 <!doctype html>
 <!--
+  Nusa ships light-only today, per DESIGN.md. A dark theme will arrive as a
+  derived block that redefines the same semantic token names and nothing else,
+  which is why no token is called --white or --navy.
+
   data-theme is set here rather than by script so the correct palette is in
-  effect before first paint. Light mode is planned; the token names stay
-  theme-agnostic so adding it is a second block of custom properties.
+  effect before first paint.
 -->
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="dark" />
+    <!-- viewport-fit=cover so env(safe-area-inset-*) reports real values on
+         notched devices; the layout adds those insets back as padding. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+
+
     <!-- Substituted at build time from the message catalog, so the product
          name has exactly one source. Updated per language at runtime. -->
     <title>%APP_NAME%</title>

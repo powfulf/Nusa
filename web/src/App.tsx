@@ -15,27 +15,22 @@ export function App() {
   }, [appName])
 
   return (
-    <div className="relative min-h-dvh">
-      {/*
-        The ambient layer sits behind everything and never receives pointer
-        events. The animated, organic version arrives in M3.
-      */}
-      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 bg-ambient" />
+    // The shell caps at --measure-shell. Past that the gutters grow and the
+    // content does not: a 1920px-wide transaction row is unreadable because
+    // the eye loses the line between date and amount.
+    <div className="mx-auto flex max-w-shell flex-col gap-xl px-md py-xl md:px-xl md:py-2xl">
+      <header className="flex flex-wrap items-start justify-between gap-md">
+        <div>
+          <h1 className="text-h1 font-bold text-text-primary">{t('app.name')}</h1>
+          <p className="mt-xs text-text-secondary">{t('app.tagline')}</p>
+        </div>
+        <LanguageSwitcher />
+      </header>
 
-      <div className="mx-auto flex max-w-2xl flex-col gap-8 px-6 py-16">
-        <header className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold text-fg-primary">{t('app.name')}</h1>
-            <p className="mt-1 text-fg-secondary">{t('app.tagline')}</p>
-          </div>
-          <LanguageSwitcher />
-        </header>
-
-        <main className="flex flex-col gap-6">
-          <HealthCard />
-          <p className="text-sm text-fg-muted">{t('milestone.notice')}</p>
-        </main>
-      </div>
+      <main className="flex max-w-prose flex-col gap-lg">
+        <HealthCard />
+        <p className="text-body-sm text-text-muted">{t('milestone.notice')}</p>
+      </main>
     </div>
   )
 }

@@ -7,6 +7,10 @@ import { languages, rememberLanguage, type Language } from '../i18n'
  *
  * Each language is offered under its own name, because someone who cannot read
  * the current language still needs to find their own.
+ *
+ * These are filter chips. The active one is identified by its fill and by
+ * aria-current, not by colour alone, and each carries a permanent text label —
+ * so no chip depends on its border to be recognised as a control.
  */
 export function LanguageSwitcher() {
   const { t, i18n } = useTranslation()
@@ -18,7 +22,7 @@ export function LanguageSwitcher() {
   }
 
   return (
-    <nav aria-label={t('language.label')} className="flex items-center gap-2">
+    <nav aria-label={t('language.label')} className="flex items-center gap-sm">
       {languages.map((language) => {
         const active = i18n.resolvedLanguage === language
         return (
@@ -29,10 +33,10 @@ export function LanguageSwitcher() {
             aria-current={active ? 'true' : undefined}
             onClick={() => change(language)}
             className={[
-              'rounded-button px-3 py-1.5 text-sm transition-colors',
+              'min-h-touch rounded-sm px-md py-xs text-caption font-medium uppercase tracking-wide transition-colors duration-fast ease-standard md:min-h-0',
               active
-                ? 'bg-surface-raised text-fg-primary ring-1 ring-bevel'
-                : 'text-fg-secondary hover:text-fg-primary',
+                ? 'bg-control-primary text-control-primary-text focus-inverse'
+                : 'border border-border-strong bg-surface-base text-text-primary hover:bg-surface-sunken',
             ].join(' ')}
           >
             {t(`language.${language}`)}
