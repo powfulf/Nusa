@@ -15,11 +15,17 @@ permissions:
 
 env:
   # CI runs at the declared floor, so "Go 1.22+" is a tested promise rather
-  # than an aspiration. The tools module needs a newer toolchain, which
-  # GOTOOLCHAIN=auto fetches on demand — that split is the whole point of
-  # keeping tools in their own module.
+  # than an aspiration.
+  #
+  # GOTOOLCHAIN is local everywhere by default, and auto only on the steps that
+  # build the tools module. That asymmetry is load-bearing: with auto set
+  # globally, a go.mod whose floor had crept up would simply cause Go to fetch
+  # the newer toolchain and every job would pass, which is precisely the
+  # failure the floor exists to catch. `go mod tidy` raises the floor on its
+  # own if a transitive test dependency asks for it, so this is a live hazard
+  # rather than a theoretical one.
   GO_VERSION: '1.22'
-  GOTOOLCHAIN: auto
+  GOTOOLCHAIN: local
   NODE_VERSION: '22'
 
 jobs:
@@ -34,8 +40,11 @@ jobs:
           cache: true
 
       # golangci-lint is pinned in tools/go.mod, so CI and developers always
-      # run the same version.
+      # run the same version. Only this step may fetch a newer toolchain, and
+      # only because tools/go.mod is a separate module that ships nothing.
       - name: Build tools
+        env:
+          GOTOOLCHAIN: auto
         run: go -C tools build -o "$PWD/bin/golangci-lint" github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
       - name: golangci-lint
@@ -75,6 +84,18 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      # A dependency upgrade must never decide what the application needs to
+      # build. Comparing the directive against the version CI installs turns a
+      # crept-up floor into a named failure rather than a puzzling one.
+      - name: Verify the Go floor is unchanged
+        run: |
+          declared=$(go mod edit -json | sed -n 's/.*"Go": "\([^"]*\)".*/\1/p')
+          if [ "$declared" != "${{ env.GO_VERSION }}" ]; then
+            echo "::error::go.mod declares go $declared but the supported floor is ${{ env.GO_VERSION }}."
+            echo "Raising the floor is a deliberate decision (CLAUDE.md §3), not a side effect of 'go mod tidy'."
+            exit 1
+          fi
+
       - name: Build
         run: go build -trimpath -o bin/nusa ./cmd/nusa
 
@@ -82,6 +103,8 @@ jobs:
       # repository. A drift here means someone edited generated files by hand
       # or forgot to run `make generate`.
       - name: Verify sqlc output is current
+        env:
+          GOTOOLCHAIN: auto
         run: |
           go -C tools build -o "$PWD/bin/sqlc" github.com/sqlc-dev/sqlc/cmd/sqlc
           ./bin/sqlc generate

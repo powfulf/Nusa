@@ -1,6 +1,9 @@
 # Local working notes — not part of the published project.
+#
+# Only .dev/ belongs here. CLAUDE.md is normative project documentation and is
+# committed: a contributor who never sees it cannot follow the rules it sets,
+# and §13's milestone record is meant to be read by whoever comes next.
 .dev/
-CLAUDE.md
 
 # Environment
 .env
@@ -14,6 +17,16 @@ CLAUDE.md
 *.test
 *.out
 coverage.*
+
+# rapid writes a reproduction file whenever a property test fails. It is a
+# local debugging artifact tied to one run and one machine; a counterexample
+# worth keeping becomes an explicit test case instead. Golden files elsewhere
+# under testdata/ are committed as normal.
+#
+# The leading **/ is load-bearing: a pattern with an interior slash anchors to
+# this file's directory, so a bare testdata/rapid/ would only ever match one at
+# the repository root.
+**/testdata/rapid/
 
 # Node / frontend
 node_modules/
