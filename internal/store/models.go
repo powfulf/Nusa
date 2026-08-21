@@ -8,9 +8,106 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// The account tree. Cycles and parent/child kind agreement are enforced by ledger.NewAccountTree, not here.
+type Account struct {
+	ID       pgtype.UUID
+	ParentID pgtype.UUID
+	Kind     string
+	Name     string
+	// The single commodity this account may hold, or NULL for no restriction.
+	CommodityCode *string
+	Closed        bool
+}
+
+// One row per mutation: actor, time, entity, diff, and whether a human, a rule, an import or the AI layer caused it.
+type AuditLog struct {
+	ID         pgtype.UUID
+	OccurredAt pgtype.Timestamptz
+	ActorID    pgtype.UUID
+	// human | rule | import | ai. Written now, read by the AI layer in M11.
+	Origin     string
+	Action     string
+	EntityKind string
+	EntityID   pgtype.UUID
+	Diff       []byte
+}
+
+// Everything an amount can be denominated in. Seeded from ledger.StandardRegistry; Country Packs add their own.
+type Commodity struct {
+	Code  string
+	Kind  string
+	Scale int16
+}
+
+// Replay protection for writes. Same key and same fingerprint replays; same key and a different fingerprint is refused.
+type IdempotencyKey struct {
+	ActorID     pgtype.UUID
+	Key         string
+	Fingerprint []byte
+	EntityKind  string
+	EntityID    pgtype.UUID
+	Response    []byte
+	CreatedAt   pgtype.Timestamptz
+	ExpiresAt   pgtype.Timestamptz
+}
+
+// One acquisition of an asset, with what it cost. FIFO ordering is (opened_on, id).
+type Lot struct {
+	ID        pgtype.UUID
+	AccountID pgtype.UUID
+	// The posting that acquired this lot. A posting, never a transaction.
+	OpenedBy           pgtype.UUID
+	OpenedOn           pgtype.Date
+	QuantityAmount     pgtype.Numeric
+	QuantityCommodity  string
+	RemainingAmount    pgtype.Numeric
+	RemainingCommodity string
+	CostAmount         pgtype.Numeric
+	CostCommodity      string
+}
+
+// One line of a transaction. Immutable: corrections are new reversing lines, never edits.
+type Posting struct {
+	ID            pgtype.UUID
+	TransactionID pgtype.UUID
+	// Copy of transactions.txn_date, held true by the composite foreign key. Never written independently.
+	TxnDate pgtype.Date
+	// Author ordering, for display only. Never a reference: postings are named by id.
+	Ordinal           int16
+	AccountID         pgtype.UUID
+	Amount            pgtype.Numeric
+	CommodityCode     string
+	RateBase          *string
+	RateQuote         *string
+	RateNum           pgtype.Numeric
+	RateDen           pgtype.Numeric
+	Memo              string
+	ReversesPostingID pgtype.UUID
+}
+
 // Schema generation for this database. Exactly one row, enforced by the singleton primary key.
 type SchemaMetum struct {
 	Singleton bool
 	Version   int32
 	AppliedAt pgtype.Timestamptz
+}
+
+// A set of postings that together move value without creating or destroying any.
+type Transaction struct {
+	ID         pgtype.UUID
+	TxnDate    pgtype.Date
+	OccurredAt pgtype.Timestamptz
+	Timezone   string
+	Payee      string
+	Memo       string
+	// The transaction this one undoes. UNIQUE, so nothing can be reversed twice.
+	ReversesID pgtype.UUID
+	// Why it was reversed: correction (wrong figures) or deletion (should never have existed).
+	ReversalKind *string
+}
+
+// Identity only until M2b adds credentials. Exists now so audit and idempotency can reference a real actor.
+type User struct {
+	ID        pgtype.UUID
+	CreatedAt pgtype.Timestamptz
 }

@@ -6,12 +6,83 @@ package store
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type Querier interface {
+	// The balance queries below are the whole of CLAUDE.md 5.2 as it reaches the
+	// database: an account balance is the sum of its postings and nothing else.
+	// There is no cached figure anywhere to drift from them.
+	//
+	// All-time and as-of are separate statements rather than one query with an
+	// optional date, because a nullable predicate (date IS NULL OR txn_date <= date)
+	// is not sargable and would cost the index-only scan both of them depend on.
+	AccountBalance(ctx context.Context, accountID pgtype.UUID) ([]AccountBalanceRow, error)
+	AccountBalanceAsOf(ctx context.Context, arg AccountBalanceAsOfParams) ([]AccountBalanceAsOfRow, error)
+	AccountBalanceBetween(ctx context.Context, arg AccountBalanceBetweenParams) ([]AccountBalanceBetweenRow, error)
+	// Claims a key, or reports that someone already holds a live one.
+	//
+	// No row comes back when the key is held and has not expired, which is the
+	// signal to read the existing claim and decide between a replay and a refusal.
+	// A concurrent claimer blocks here until the first transaction commits or
+	// aborts, so two simultaneous replays of the same write cannot both proceed.
+	//
+	// An expired claim is taken over rather than left to block forever, which is
+	// what makes the TTL mean something for correctness and not just for the
+	// sweeper.
+	ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (IdempotencyKey, error)
+	CountAuditEntries(ctx context.Context) (int64, error)
+	CountTransactions(ctx context.Context) (int64, error)
+	DeleteExpiredIdempotencyKeys(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error)
+	GetAccount(ctx context.Context, id pgtype.UUID) (Account, error)
+	GetCommodity(ctx context.Context, code string) (Commodity, error)
+	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
+	GetLot(ctx context.Context, id pgtype.UUID) (Lot, error)
+	// Widens a posting back to its transaction, which is how a lot recovers the
+	// transaction that opened it.
+	GetPostingOwner(ctx context.Context, id pgtype.UUID) (pgtype.UUID, error)
 	// Reads the schema generation. Doubles as the health endpoint's proof that the
 	// connection works and that migrations have been applied.
 	GetSchemaVersion(ctx context.Context) (int32, error)
+	GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error)
+	InsertAccount(ctx context.Context, arg InsertAccountParams) error
+	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
+	InsertLot(ctx context.Context, arg InsertLotParams) error
+	InsertPosting(ctx context.Context, arg InsertPostingParams) error
+	InsertTransaction(ctx context.Context, arg InsertTransactionParams) error
+	InsertUser(ctx context.Context, id pgtype.UUID) error
+	ListAccountSubtree(ctx context.Context, id pgtype.UUID) ([]pgtype.UUID, error)
+	// The whole tree. Building a ledger.AccountTree needs every ancestor of every
+	// account it contains, and an account tree is tens to low hundreds of rows, so
+	// the whole set is the honest unit to read.
+	ListAccounts(ctx context.Context) ([]Account, error)
+	ListAuditEntriesForEntity(ctx context.Context, arg ListAuditEntriesForEntityParams) ([]AuditLog, error)
+	// Every commodity this instance knows, core plus whatever Country Packs added.
+	ListCommodities(ctx context.Context) ([]Commodity, error)
+	// FIFO order: oldest first, identity breaking the tie so the same disposal
+	// computes the same gain on every run.
+	ListOpenLotsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Lot, error)
+	// Ordered by the ordinal the author wrote, which is the whole reason that
+	// column exists. Served by the same unique index that enforces it.
+	ListPostingsByTransaction(ctx context.Context, transactionID pgtype.UUID) ([]Posting, error)
+	// Civil dates, both counted. Only txn_date decides; occurred_at is never
+	// consulted, so the answer is the same for every reader in every zone.
+	ListTransactionsBetween(ctx context.Context, arg ListTransactionsBetweenParams) ([]Transaction, error)
+	// The one mutable figure in the schema, and it is not history: a lot's
+	// remaining quantity is a running position, not a record of an event. What
+	// consumed it is recorded by the disposal transaction.
+	SetLotRemaining(ctx context.Context, arg SetLotRemainingParams) error
+	SubtreeBalanceAsOf(ctx context.Context, arg SubtreeBalanceAsOfParams) ([]SubtreeBalanceAsOfRow, error)
+	// The whole-book form of 5.1. It must always be zero: each transaction sums to
+	// zero on its own, so any number of them still do. A non-zero total means
+	// something got in without passing NewTransaction.
+	TotalsByCommodity(ctx context.Context) ([]TotalsByCommodityRow, error)
+	// Country Packs register their own securities and funds. A redefinition that
+	// disagrees with what is already stored is refused rather than silently
+	// applied: a commodity whose scale changes underneath stored amounts would
+	// move every decimal point already written.
+	UpsertCommodity(ctx context.Context, arg UpsertCommodityParams) error
 }
 
 var _ Querier = (*Queries)(nil)
