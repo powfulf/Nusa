@@ -15,6 +15,34 @@ make dev
 `make dev` starts Postgres, applies migrations, runs the API and the Vite dev
 server. `make test` and `make lint` must both pass before you open a pull request.
 
+## Running the tests needs Docker running
+
+**`go test ./...` starts a real PostgreSQL container.** The tests for
+`internal/store` run against an actual database — not a mock, and not a
+database you have to set up first. They start one, migrate it, use it and throw
+it away. If the Docker daemon is not running, they fail immediately with a
+message saying so.
+
+There is deliberately no build tag separating them. A tagged integration suite
+is one that a green `go test ./...` says nothing about, and "the tests pass"
+would quietly come to mean "the tests that ran passed". Nusa supports exactly
+one database and ships as a container, so requiring Docker to run the tests
+costs a contributor nothing they did not already need.
+
+Two things worth knowing before you decide something is broken:
+
+- **Docker Desktop takes a moment after launch.** The named pipe appears before
+  the daemon answers, so `docker info` can fail for a few seconds after the
+  window opens. Wait for `docker info` to succeed rather than concluding it is
+  unavailable.
+- **The first run pulls `postgres:16`,** so it is slower than the rest.
+
+The property tests run 100 cases by default. To lean on them harder:
+
+```bash
+go test ./internal/store/ -rapid.checks=2000 -timeout 30m
+```
+
 ## Ground rules
 
 The repository root contains a normative project guide covering architecture,

@@ -705,3 +705,302 @@ After re-materialising the checkout, all 54 Go files are LF and
 > in line endings. Verify against `git show HEAD:<file>`, never against the
 > file on disk.
 
+
+### M2 split into M2a and M2b
+
+Planning decision, taken before any M2 code was written. The full
+implementation record for M2a is appended when M2a completes; this entry exists
+because the reasoning is about *sequencing* and is worth having on record
+independently of how the work turns out.
+
+One label was holding two milestones: mapping the domain onto tables, and
+building authentication. Both are large, both carry risk, and neither teaches
+anything about the other.
+
+| | Scope |
+| --- | --- |
+| **M2a** | Schema, repositories, atomic writes, idempotency, audit log, integration tests |
+| **M2b** | Authentication, sessions, TOTP, rate limiting, REST API, OpenAPI |
+
+**Persistence goes first.** `internal/ledger` has been proved correct in memory
+and nowhere else, and writing something down and reading it back is the only
+way to find out whether the model survives contact with storage. If anything in
+M1 is wrong, M2a is what finds it — and finding it before an authentication
+layer sits on top is far cheaper. Authentication, by contrast, teaches nothing
+about the ledger.
+
+`idempotency_keys` and `audit_log` stay in M2a rather than moving to M2b with
+the HTTP layer. Both are part of the persistence model: §5.6 is a property of
+writes, not of requests, and the importer, the rule engine and the scheduler
+all replay writes with no HTTP anywhere in sight. A key enforced only in
+middleware is a key that three future callers bypass.
+
+#### Balances: SQL aggregation, with no cache at all
+
+Three approaches were weighed: aggregate on demand in SQL; cumulative monthly
+checkpoints plus a partial-month delta; a running current-balance cache
+maintained in the writing transaction. The first was chosen.
+
+§5.2 already calls a cached balance an optimisation, and there were no
+measurements to justify one. More decisive: **the aggregation query is the
+oracle the other two need.** Drift detection for a checkpoint table or a
+balance cache *is* the plain `SUM` over postings. Building it first means the
+checker exists and is tested before there is anything to check; building the
+cache first means writing the cache and its checker in the same breath, which
+is how a guard nobody has watched fail gets installed.
+
+The schema shape is identical under all three, so nothing is foreclosed: a
+checkpoint table or a balance cache is a later `CREATE TABLE`, touching no
+existing row.
+> **Rule.** When one candidate design is the definition the others are
+> approximations of, build the definition first. It is also their test.
+
+A benchmark with an explicit threshold ships alongside, so that revisiting the
+decision is triggered by a number rather than by remembering to ask.
+
+#### Docker was not a limitation after all
+
+The previous session recorded that the Docker daemon was unreachable, and this
+one was told to record it as a fourth environment limitation. It is not one.
+The first `docker info` failed because Docker Desktop was still starting —
+roughly thirty seconds elapsed between the process appearing and the named pipe
+being served. A retry succeeded from both shells, and every M2a verification
+ran against a real PostgreSQL 16.14.
+
+Worth knowing rather than worth warning about: the daemon needs a moment after
+launch, and Postgres is published on **55432**, not 5432, because `POSTGRES_PORT`
+in `.env` was moved during M0 to avoid a local conflict.
+> **Rule.** Distinguish "unavailable" from "not ready yet" before writing either
+> one down. A limitation recorded from a single failed probe outlives the
+> condition that produced it, and every later session pays for the caution.
+
+### M2a — Persistence
+
+The domain written down and read back: schema, repositories, atomic writes,
+repository-level idempotency, audit log, and integration tests against a real
+PostgreSQL. `internal/ledger` is byte-for-byte unchanged, which was the point.
+
+Six migrations, ten tables, 38 check constraints, two constraint triggers, 31
+integration tests.
+
+#### Balances are summed in SQL, and nothing is cached
+
+Three designs were weighed before any code was written — aggregate on demand,
+cumulative monthly checkpoints, a running balance maintained in the writing
+transaction. The first was chosen, and the reasoning is recorded above under
+*M2 split into M2a and M2b*. The short version: the aggregation query is the
+definition the other two would be approximations of, and their drift detector,
+so building it first means the checker exists before there is anything to
+check.
+
+**The measurement, on 40 accounts with a realistic spread, busiest account
+measured** (Docker Desktop on Windows, warm cache, so read these as a shape
+rather than a promise):
+
+| postings | in the account | `Balance` p95 | `BalanceAsOf` p95 | `SubtreeBalance` p95 |
+| ---: | ---: | ---: | ---: | ---: |
+| 10.000 | 500 | 1,09 ms | 0,85 ms | 2,34 ms |
+| 100.000 | 5.000 | 3,16 ms | 2,88 ms | 16,45 ms |
+| 500.000 | 25.000 | 8,52 ms | 5,33 ms | 76,34 ms |
+
+For calibration: a household posting fifty transactions a month for twenty
+years writes roughly 24.000 postings across the whole book. The 10.000 row is
+already past a twenty-year ceiling for a single account.
+
+> **Trigger.** Revisit the decision not to cache when **`BalanceAsOf` for one
+> account exceeds 50 ms at p95**, or when **any single account holds more than
+> 200.000 postings**. Both are asserted by
+> `TestBalanceLatencyStaysWithinItsBudget`, which fails the build rather than
+> printing a number nobody is obliged to read. A cache added later is a
+> `CREATE TABLE` that touches no existing row, and this query is what would
+> check it for drift.
+
+**A subtree balance is roughly nine times slower than the same account's own
+balance at 500.000 postings, and the gap widens with volume.** The plan is a
+healthy index-only scan with zero heap fetches at 50.000, so this is a scaling
+effect that has not been isolated. It is guarded separately and loosely at
+150 ms — a regression guard, not a certification — and left as an open question
+for M6, where reporting actually leans on subtree sums.
+
+#### What the round-trip property test found
+
+Random transactions — one to three commodities, two to four lines each, amounts
+drawn as bytes and read as `big.Int` so no monetary value ever passes through a
+double, exact fractional rates, lots already partly consumed — written to
+PostgreSQL, read back, and compared. 3000 checks, about 123.000 balance
+comparisons, 119 seconds.
+
+The central assertion is that **SQL and the domain agree**: a `ledger.Journal`
+is built from the same transactions and every balance query is compared against
+it, `SumPostings` included. Two independent implementations of one definition,
+run over the same data. If they ever diverge the SQL is wrong, because §5.2
+makes `Journal` the definition.
+
+It found one real mismatch, and it was not in the money.
+
+**A Go string may contain NUL; a PostgreSQL `text` value may not.** A generated
+payee containing U+0000 failed on the eighth case with `SQLSTATE 22021`, an
+error naming neither the field nor the fix. A probe narrowed it to exactly one
+code point: control characters, newlines, emoji, combining marks and bidi
+overrides all round-trip untouched.
+
+The store now refuses NUL by name, before writing, on payee, memo, posting memo
+and account name. Not stripped — quietly mutating what someone typed is what
+this project does not do, and a payee that silently loses a character no longer
+matches the one on the bank statement.
+
+Whether that belongs in the domain instead is genuinely open. NUL is rejected
+by JSON, by C string APIs, by filenames and by HTTP headers, so "text a ledger
+can hold" is arguably a domain rule that PostgreSQL merely noticed first. It
+stayed in the store because M2a froze the domain; M2b unfreezes it for
+reversing entries and is the natural place to revisit.
+> **Rule.** A generator that only produces values someone thought of tests only
+> what someone thought of. The one defect in the persistence layer was in a
+> string field, found by a fuzzer, in a value no reviewer would ever have
+> written by hand.
+
+#### The deferred balance trigger does not like bulk loads
+
+§5.1 is enforced twice: by `NewTransaction` before the write, and by a
+`DEFERRABLE INITIALLY DEFERRED` constraint trigger at COMMIT. The trigger is
+what still holds when an importer or a rule engine writes without coming
+through the repository, and its scope is stated in the migration and bounded to
+§5 alone.
+
+It has a cost that only appears at volume. Every header and every posting
+queues an after-trigger event held until COMMIT, and the queue does not scale
+linearly: **300.000 events commit in about eight seconds; 750.000 events in a
+single transaction had not finished after thirteen minutes.**
+
+The fix is not to weaken the trigger. It is to load in chunks — a transaction's
+header and all of its lines inside one chunk, which is the only thing the
+constraint requires. The benchmark fixture uses 5.000 transactions per chunk
+and loads 500.000 postings in about twenty seconds.
+> **Rule.** The importer must batch. A single database transaction wrapping an
+> entire import will appear to hang at COMMIT, with no error and no progress,
+> which is the worst failure shape available.
+
+#### Decisions worth knowing
+
+**The schema precedes the operations, deliberately.** `reverses_id`,
+`reversal_kind` and `reverses_posting_id` exist; nothing writes them yet, and
+`SetLotRemaining` exists as a query with no operation behind it. Reversing
+entries and lot consumption are accounting operations, not persistence, and
+putting a domain-shaped builder in `store` would have set a precedent that
+erodes §6 — the next session would cite it as proof that domain logic may live
+in the store when the reason is good enough. Both move to M2b, where the domain
+freeze is lifted explicitly and only for them. Columns are cheap now and
+expensive to add to a populated table later; operations are not.
+
+**Every write requires an actor.** `idempotency_keys.actor_id` is NOT NULL,
+because a key is scoped per actor: two people may pick the same key and neither
+may receive the other's result. Rules, imports and the AI layer all act on
+behalf of someone. If Nusa ever grows a genuinely ownerless rule, this is the
+decision to reopen — `audit_log.actor_id` is already nullable for exactly that
+shape, and the two would then disagree.
+
+**An expired idempotency key is reclaimable,** not merely swept. Without that
+the TTL would mean nothing for correctness and only something for table size,
+which is a TTL that misleads.
+
+**The fingerprint covers the whole request,** not just the entity id. Same key
+with one digit changed is refused rather than replayed: the caller believes it
+is retrying something it is not.
+
+**A transaction may hold at most 32.768 postings,** the ceiling of the ordinal
+column. No real transaction approaches it; the check exists because the
+alternative is a silent wrap to a negative ordinal, refused by a constraint
+whose message names neither the cause nor the fix.
+
+**Integration tests carry no build tag.** A tagged suite is one that a green
+`go test ./...` says nothing about, and "the tests pass" would quietly come to
+mean "the tests that ran passed". Docker missing is a loud failure. The cost —
+contributors need Docker running — is documented in `CONTRIBUTING.md`, not only
+here, because someone who cannot run the tests in their first minute leaves.
+
+#### Guards, each watched failing
+
+Every guard installed this milestone was broken on purpose at installation
+time, per the rule from the design-system work. In order:
+
+- **Seeded commodities vs `StandardRegistry`** — JPY's scale changed 0 to 2:
+  fails on scale. ETH removed from the seed: fails on the count.
+- **Posting order** — read back by id instead of ordinal: fails after 0 tests.
+- **`BalanceAsOf` boundary** — `<` instead of `<=`: fails after 0 tests.
+- **Numeric exactness** — `numericTo` ignoring the exponent: fails after 2
+  tests, and informatively. It means pgx really does return a non-zero exponent
+  for some `numeric(40,0)` values, so that branch is load-bearing rather than
+  defensive.
+- **NUL rejection** — validation removed: the raw `SQLSTATE 22021` leaks
+  through, exactly as it did before the guard existed.
+- **The balance trigger** — eighteen violations driven straight through psql,
+  bypassing the repository and the domain entirely.
+
+One guard was found incomplete by its own numbers rather than by a deliberate
+break: the latency test originally asserted a budget on `Balance` and
+`BalanceAsOf` but not on `SubtreeBalance`, and let a 76 ms p95 pass unremarked.
+> **Rule.** Breaking a check proves it can fail. It does not prove it covers
+> everything it should.
+>
+> So coverage is decided *before* the guard is written, not inferred from it
+> afterwards: **list what the guard must cover, then implement it, then break
+> each item on the list.** A guard written first and audited later is audited
+> against itself, and the thing it forgot to measure is exactly the thing
+> nobody thinks to look for. Reading the assertions back and comparing them
+> against what the test actually measures is the last step, not the first.
+
+#### Environment
+
+Docker Desktop stopped by itself three times during this milestone — once
+mid-test-run, twice between runs — leaving no engine pipe and no processes.
+Each restart recovered cleanly. Worth knowing rather than worth working around:
+the named pipe reappears several seconds before the daemon answers, so wait on
+`docker info` succeeding, not on the pipe existing.
+
+#### State after M2a
+
+The ledger is persistent. A transaction built in the domain can be written,
+read back byte-for-byte, and summed into a balance that SQL and
+`ledger.Journal` agree on — proved over 3000 random cases rather than asserted.
+Writes are atomic, idempotent at the repository, and audited with an origin.
+The schema refuses an unbalanced transaction even when the writer never touched
+Go.
+
+`internal/ledger` is unchanged. That was the milestone's real question — whether
+the M1 model survives contact with storage — and the answer is that it did, at
+the cost of one store-level rule the domain does not know about (NUL in text).
+
+What does **not** exist: any HTTP surface beyond `/healthz`, any
+authentication, and any way for a person to reach the ledger. M2a made the
+ledger storable; it did not make it reachable.
+
+**Three debts open the domain freeze, and they open it once.** M2b lifts it
+deliberately and only for these:
+
+1. **Reversing entries** — `transactions.reverses_id` and `reversal_kind` are
+   written by nothing. §5.3 makes a correction a new reversing transaction, and
+   the builder for it is domain logic that had nowhere to live in M2a.
+2. **Tombstones** — the same mechanism with `reversal_kind = 'deletion'`. A
+   "delete" is an append, never a mutation, and nothing implements it yet.
+3. **Lot consumption** — `SetLotRemaining` exists as a query with no operation
+   behind it. FIFO selection lives in `ledger.ConsumeFIFO`; wiring a disposal
+   through it and writing the reduced lots back is the missing half.
+
+Plus the open question the property test raised: **whether NUL rejection
+belongs in the domain** rather than in the store. It is the same door, so it
+goes through it at the same time.
+
+Everything else M2b needs — `sessions`, credential columns on `users` — is
+additive schema that touches no existing row.
+
+#### Deliberately deferred
+
+| Deferred | Lands in |
+| --- | --- |
+| Reversing entries and tombstones as operations. Schema, constraints and links are in place; the builders are not, and the domain freeze lifts for them | M2b |
+| Lot consumption. `SetLotRemaining` exists as a query with no operation behind it | M2b |
+| Whether NUL rejection belongs in the domain rather than the store | M2b |
+| `sessions`, and credential columns on `users` by ALTER rather than CREATE | M2b |
+| `fx_rates`. No domain type and no consumer yet, so its shape would be a guess. Per-posting rates that §5.4 requires are already stored | M6 |
+| Why a subtree balance degrades faster than a single-account balance | M6 |
+| Cursor pagination, DTOs, OpenAPI | M2b |
