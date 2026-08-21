@@ -1,0 +1,222 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package store
+
+import (
+	"crypto/sha256"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/GaffaQ/Nusa/internal/ledger"
+)
+
+// Origin says what caused a mutation. Section 10 requires it on every audit
+// entry, and M11 is what reads it: an AI-proposed change has to be
+// distinguishable from one a person made, forever, not just while anyone
+// remembers which was which.
+type Origin string
+
+// The recognised origins. The database checks this list too.
+const (
+	OriginHuman  Origin = "human"
+	OriginRule   Origin = "rule"
+	OriginImport Origin = "import"
+	OriginAI     Origin = "ai"
+)
+
+// IsValid reports whether the origin is one the database will accept.
+func (o Origin) IsValid() bool {
+	switch o {
+	case OriginHuman, OriginRule, OriginImport, OriginAI:
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultIdempotencyTTL is how long a claimed key is honoured when the caller
+// names no lifetime of its own. Long enough to cover any retry a client or a
+// queue will attempt, short enough that the table does not grow without end.
+const DefaultIdempotencyTTL = 24 * time.Hour
+
+// Write carries everything a mutation needs that is not the mutation itself:
+// who is doing it, what caused it, and how a replay of it is recognised.
+//
+// Identities arrive from outside, exactly as they do in the domain. This
+// package mints nothing, so a retried write carries the same identities as the
+// first attempt and is recognisable as the same write rather than looking like
+// a new one.
+type Write struct {
+	// ActorID is the user responsible. Required — an idempotency key is scoped
+	// per actor, because two people may pick the same key and neither may
+	// receive the other's result.
+	ActorID string
+
+	// Origin is what caused the write. Required.
+	Origin Origin
+
+	// IdempotencyKey recognises a replay. Required: section 5.6 says every
+	// write is idempotent, and a write with no key cannot be.
+	IdempotencyKey string
+
+	// AuditID identifies the audit entry this write records. Required, and
+	// supplied by the caller for the same reason every other identity is.
+	AuditID string
+
+	// OccurredAt timestamps the audit entry. Zero means the wall clock is read
+	// here, at the edge, which is allowed — this is not the domain.
+	OccurredAt time.Time
+
+	// TTL is how long the idempotency key is honoured. Zero means
+	// DefaultIdempotencyTTL.
+	TTL time.Duration
+}
+
+func (w Write) validate() error {
+	switch {
+	case w.ActorID == "":
+		return fmt.Errorf("%w: no actor", ErrInvalidWrite)
+	case !w.Origin.IsValid():
+		return fmt.Errorf("%w: origin %q is not one of human, rule, import, ai",
+			ErrInvalidWrite, w.Origin)
+	case w.IdempotencyKey == "":
+		return fmt.Errorf("%w: no idempotency key", ErrInvalidWrite)
+	case w.AuditID == "":
+		return fmt.Errorf("%w: no audit entry id", ErrInvalidWrite)
+	}
+	if err := ledger.ValidateID(w.ActorID); err != nil {
+		return fmt.Errorf("%w: actor id: %w", ErrInvalidWrite, err)
+	}
+	if err := ledger.ValidateID(w.AuditID); err != nil {
+		return fmt.Errorf("%w: audit id: %w", ErrInvalidWrite, err)
+	}
+	return nil
+}
+
+func (w Write) at() time.Time {
+	if w.OccurredAt.IsZero() {
+		return time.Now().UTC()
+	}
+	return w.OccurredAt
+}
+
+func (w Write) expiry() time.Time {
+	ttl := w.TTL
+	if ttl <= 0 {
+		ttl = DefaultIdempotencyTTL
+	}
+	return w.at().Add(ttl)
+}
+
+// Result reports what a write did.
+type Result struct {
+	// EntityID is what was written, or what the first attempt wrote.
+	EntityID string
+
+	// Replayed is true when an earlier write with the same key and the same
+	// request had already done this. Nothing was written a second time.
+	Replayed bool
+}
+
+// fingerprint is a hash of the request a key was claimed for. Section 5.6 says
+// a replay must not duplicate; it says nothing about honouring a key attached
+// to a different request, and doing so would answer a question nobody asked.
+//
+// It is built from the domain values through their accessors rather than from
+// whatever the caller happened to send, so two requests that mean the same
+// thing hash the same however they were spelled on the way in.
+func fingerprintTransaction(t ledger.Transaction) [32]byte {
+	h := sha256.New()
+	field := func(parts ...string) {
+		for _, p := range parts {
+			// The length prefix is what stops "ab"+"c" hashing as "a"+"bc".
+			_, _ = io.WriteString(h, strconv.Itoa(len(p)))
+			_, _ = io.WriteString(h, ":")
+			_, _ = io.WriteString(h, p)
+		}
+	}
+
+	field("transaction", string(t.ID()), t.Date().String(), t.Timezone(), t.Payee(), t.Memo())
+	if occurred := t.OccurredAt(); !occurred.IsZero() {
+		field("occurred", occurred.UTC().Format(time.RFC3339Nano))
+	}
+	// In the order the author wrote them, because that order is preserved and
+	// a reordered transaction is a different request.
+	for _, p := range t.Postings() {
+		field("posting", string(p.ID()), string(p.Account()),
+			p.Amount().Amount().String(), string(p.Amount().Commodity()), p.Memo())
+		if rate := p.Rate(); !rate.IsZero() {
+			field("rate", string(rate.Base()), string(rate.Quote()), rate.Value().RatString())
+		}
+	}
+
+	var sum [32]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
+// unbalancedError reports whether an error is the database refusing a
+// transaction that does not sum to zero.
+//
+// The trigger raises with a named constraint precisely so this can be
+// recognised without matching on message text, which changes.
+func unbalancedError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.ConstraintName == "transaction_is_balanced"
+}
+
+// nulNotAllowed reports text that PostgreSQL cannot store.
+//
+// This is the one place where what the domain accepts and what the database
+// can hold come apart. A Go string may contain any byte; a PostgreSQL text
+// value may contain any byte except NUL. Every other awkward case survives
+// intact — control characters, newlines, emoji, combining marks, bidi
+// overrides — which the round-trip property test checks. Only U+0000 does not,
+// and it arrives as SQLSTATE 22021, an error naming neither the field nor the
+// fix.
+//
+// So it is refused here, by name, before anything is written. Not stripped:
+// quietly mutating what someone typed is exactly what this project does not
+// do, and a payee that silently loses a character is a payee that no longer
+// matches the one in the bank statement.
+//
+// Whether this belongs in the domain instead is an open question. NUL is
+// rejected by JSON, by C string APIs, by filenames and by HTTP headers, so
+// "text a ledger can hold" is arguably a domain rule that PostgreSQL merely
+// noticed first. See the M2a notes; M2b is where the domain is unfrozen.
+func nulNotAllowed(field, value string) error {
+	if i := strings.IndexByte(value, 0); i >= 0 {
+		return fmt.Errorf("%w: %s contains a NUL byte at offset %d, and text columns cannot hold one",
+			ErrInvalidWrite, field, i)
+	}
+	return nil
+}
+
+// validateTransactionText checks every user-supplied string on a transaction
+// before any of it reaches the database.
+func validateTransactionText(txn ledger.Transaction) error {
+	for _, check := range []struct{ field, value string }{
+		{"payee", txn.Payee()},
+		{"memo", txn.Memo()},
+		{"timezone", txn.Timezone()},
+	} {
+		if err := nulNotAllowed(fmt.Sprintf("transaction %s %s", txn.ID(), check.field), check.value); err != nil {
+			return err
+		}
+	}
+	for _, p := range txn.Postings() {
+		if err := nulNotAllowed(fmt.Sprintf("posting %s memo", p.ID()), p.Memo()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
