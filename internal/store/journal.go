@@ -514,6 +514,62 @@ func transactionDiff(txn ledger.Transaction) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// disposalDiff renders a disposal for the audit log: what was written, and
+// what it consumed.
+//
+// The consumed lots are the part that cannot be recovered later. FIFO
+// selection depends on which lots were open at the moment of the disposal, so
+// re-running it over today's lots does not reproduce the answer — which is
+// exactly why lot_consumptions exists, and why the log records the same fact
+// independently of it.
+//
+// The basis is rendered as an exact fraction, not as an amount. Rounding it
+// here would put a rounded figure in the permanent record of an unrounded one
+// (§4.6, §4.7).
+func disposalDiff(txn ledger.Transaction, consumed map[ledger.PostingID][]ledger.Consumption) ([]byte, error) {
+	base, err := transactionDiff(txn)
+	if err != nil {
+		return nil, err
+	}
+
+	type consumptionDiff struct {
+		Lot       string       `json:"lot"`
+		Quantity  ledger.Money `json:"quantity"`
+		Basis     string       `json:"basis"`
+		Commodity string       `json:"basis_commodity"`
+	}
+
+	// Merged into the transaction's own diff rather than nested beside it, so
+	// one audit entry reads as one document.
+	var merged map[string]any
+	if err := json.Unmarshal(base, &merged); err != nil {
+		return nil, fmt.Errorf("merge audit diff for %s: %w", txn.ID(), err)
+	}
+
+	lines := make(map[string][]consumptionDiff, len(consumed))
+	for posting, consumptions := range consumed {
+		entries := make([]consumptionDiff, 0, len(consumptions))
+		for _, c := range consumptions {
+			entries = append(entries, consumptionDiff{
+				Lot:       string(c.Lot),
+				Quantity:  c.Quantity,
+				Basis:     c.Basis.Value().RatString(),
+				Commodity: string(c.Basis.Commodity()),
+			})
+		}
+		lines[string(posting)] = entries
+	}
+	merged["consumed"] = lines
+
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(merged); err != nil {
+		return nil, fmt.Errorf("encode disposal diff for %s: %w", txn.ID(), err)
+	}
+	return buf.Bytes(), nil
+}
+
 // LoadLot reads one lot back as a domain value.
 //
 // The lot names the posting that opened it, never the transaction: a
@@ -534,36 +590,7 @@ func (s *Store) LoadLot(ctx context.Context, id ledger.LotID) (ledger.Lot, error
 		return ledger.Lot{}, fmt.Errorf("get lot %s: %w", id, err)
 	}
 
-	quantity, err := moneyTo(row.QuantityAmount, row.QuantityCommodity)
-	if err != nil {
-		return ledger.Lot{}, fmt.Errorf("lot %s quantity: %w", id, err)
-	}
-	remaining, err := moneyTo(row.RemainingAmount, row.RemainingCommodity)
-	if err != nil {
-		return ledger.Lot{}, fmt.Errorf("lot %s remaining: %w", id, err)
-	}
-	cost, err := moneyTo(row.CostAmount, row.CostCommodity)
-	if err != nil {
-		return ledger.Lot{}, fmt.Errorf("lot %s cost: %w", id, err)
-	}
-	openedOn, err := dateTo(row.OpenedOn)
-	if err != nil {
-		return ledger.Lot{}, fmt.Errorf("lot %s: %w", id, err)
-	}
-
-	lot, err := ledger.NewLot(ledger.LotSpec{
-		ID:        ledger.LotID(uuidTo(row.ID)),
-		Account:   ledger.AccountID(uuidTo(row.AccountID)),
-		OpenedBy:  ledger.PostingID(uuidTo(row.OpenedBy)),
-		OpenedOn:  openedOn,
-		Quantity:  quantity,
-		Cost:      cost,
-		Remaining: &remaining,
-	})
-	if err != nil {
-		return ledger.Lot{}, fmt.Errorf("%w: lot %s: %w", ErrCorrupt, id, err)
-	}
-	return lot, nil
+	return lotTo(row)
 }
 
 // PostingOwner widens a posting back to the transaction that contains it.

@@ -66,6 +66,19 @@ type Lot struct {
 	CostCommodity      string
 }
 
+// Which lots a disposing line drew on, how much of each, and what that much cost.
+type LotConsumption struct {
+	// The disposing line. A posting, never a transaction.
+	PostingID         pgtype.UUID
+	LotID             pgtype.UUID
+	QuantityAmount    pgtype.Numeric
+	QuantityCommodity string
+	// Numerator of the exact cost basis. A fraction, never rounded here (4.6, 4.7).
+	BasisNum       pgtype.Numeric
+	BasisDen       pgtype.Numeric
+	BasisCommodity string
+}
+
 // One line of a transaction. Immutable: corrections are new reversing lines, never edits.
 type Posting struct {
 	ID            pgtype.UUID

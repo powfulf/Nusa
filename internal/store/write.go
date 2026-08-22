@@ -171,6 +171,36 @@ func fingerprintTransaction(t ledger.Transaction) [32]byte {
 	return sum
 }
 
+// fingerprintDisposal hashes a disposal: the transaction, plus which of its
+// lines are consuming lots.
+//
+// Which lines dispose is part of the request rather than a detail of how it is
+// carried out. The same transaction written once as a plain entry and once as
+// a disposal produces the same rows in transactions and postings and a
+// completely different set of consumed lots, and answering the second with the
+// first one's result would report a sale that consumed nothing.
+func fingerprintDisposal(t ledger.Transaction, disposing []ledger.PostingID) [32]byte {
+	h := sha256.New()
+
+	base := fingerprintTransaction(t)
+	_, _ = h.Write(base[:])
+
+	// In the order given: a caller naming its lines in a different order is
+	// asking for the same thing, but proving that requires sorting, and a
+	// fingerprint that sorts its input is one more place for two callers to
+	// disagree about what "the same request" means. The order a caller sends
+	// twice is the order it sends twice.
+	for _, id := range disposing {
+		_, _ = io.WriteString(h, strconv.Itoa(len(id)))
+		_, _ = io.WriteString(h, ":")
+		_, _ = io.WriteString(h, string(id))
+	}
+
+	var sum [32]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
 // unbalancedError reports whether an error is the database refusing a
 // transaction that does not sum to zero.
 //
@@ -221,13 +251,11 @@ func constraintNamed(err error, code string, names ...string) bool {
 
 // nulNotAllowed reports text that PostgreSQL cannot store.
 //
-// This is the one place where what the domain accepts and what the database
-// can hold come apart. A Go string may contain any byte; a PostgreSQL text
-// value may contain any byte except NUL. Every other awkward case survives
-// intact — control characters, newlines, emoji, combining marks, bidi
-// overrides — which the round-trip property test checks. Only U+0000 does not,
-// and it arrives as SQLSTATE 22021, an error naming neither the field nor the
-// fix.
+// A Go string may contain any byte; a PostgreSQL text value may contain any
+// byte except NUL, and a write carrying one fails with SQLSTATE 22021, an
+// error naming neither the field nor the fix. Every other awkward case
+// survives intact — control characters, newlines, emoji, combining marks, bidi
+// overrides — which the round-trip property test checks.
 //
 // THIS DUPLICATES ledger.validateText, AND THE DUPLICATION IS DELIBERATE.
 // KEEP IT — but keep it for the right reason, which is narrower than it looks.

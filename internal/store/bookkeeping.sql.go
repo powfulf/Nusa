@@ -215,6 +215,39 @@ func (q *Queries) InsertLot(ctx context.Context, arg InsertLotParams) error {
 	return err
 }
 
+const insertLotConsumption = `-- name: InsertLotConsumption :exec
+INSERT INTO lot_consumptions (
+    posting_id, lot_id,
+    quantity_amount, quantity_commodity,
+    basis_num, basis_den, basis_commodity
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+`
+
+type InsertLotConsumptionParams struct {
+	PostingID         pgtype.UUID
+	LotID             pgtype.UUID
+	QuantityAmount    pgtype.Numeric
+	QuantityCommodity string
+	BasisNum          pgtype.Numeric
+	BasisDen          pgtype.Numeric
+	BasisCommodity    string
+}
+
+// One lot's part in one disposing line. Section 4.7: the basis is an exact
+// fraction, never rounded on the way in.
+func (q *Queries) InsertLotConsumption(ctx context.Context, arg InsertLotConsumptionParams) error {
+	_, err := q.db.Exec(ctx, insertLotConsumption,
+		arg.PostingID,
+		arg.LotID,
+		arg.QuantityAmount,
+		arg.QuantityCommodity,
+		arg.BasisNum,
+		arg.BasisDen,
+		arg.BasisCommodity,
+	)
+	return err
+}
+
 const insertUser = `-- name: InsertUser :exec
 INSERT INTO users (id) VALUES ($1)
 `
@@ -254,6 +287,89 @@ func (q *Queries) ListAuditEntriesForEntity(ctx context.Context, arg ListAuditEn
 			&i.EntityKind,
 			&i.EntityID,
 			&i.Diff,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConsumptionsByLot = `-- name: ListConsumptionsByLot :many
+SELECT posting_id, lot_id,
+       quantity_amount, quantity_commodity,
+       basis_num, basis_den, basis_commodity
+  FROM lot_consumptions
+ WHERE lot_id = $1
+ ORDER BY posting_id
+`
+
+// Everything that has ever drawn on one lot. This is what reconstructs
+// remaining_amount from the appended record rather than trusting the running
+// figure, which is the drift check the M2a notes ask for wherever a cached
+// number exists.
+func (q *Queries) ListConsumptionsByLot(ctx context.Context, lotID pgtype.UUID) ([]LotConsumption, error) {
+	rows, err := q.db.Query(ctx, listConsumptionsByLot, lotID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LotConsumption{}
+	for rows.Next() {
+		var i LotConsumption
+		if err := rows.Scan(
+			&i.PostingID,
+			&i.LotID,
+			&i.QuantityAmount,
+			&i.QuantityCommodity,
+			&i.BasisNum,
+			&i.BasisDen,
+			&i.BasisCommodity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConsumptionsByPosting = `-- name: ListConsumptionsByPosting :many
+SELECT c.posting_id, c.lot_id,
+       c.quantity_amount, c.quantity_commodity,
+       c.basis_num, c.basis_den, c.basis_commodity
+  FROM lot_consumptions c
+  JOIN lots l ON l.id = c.lot_id
+ WHERE c.posting_id = $1
+ ORDER BY l.opened_on, l.id
+`
+
+// What one disposing line drew on. Ordered by the lots' own FIFO ordering, so
+// a disposal reads back in the order it consumed — that order is derived from
+// the lots rather than stored, because it is a trace of the selection and not
+// a fact about the disposal.
+func (q *Queries) ListConsumptionsByPosting(ctx context.Context, postingID pgtype.UUID) ([]LotConsumption, error) {
+	rows, err := q.db.Query(ctx, listConsumptionsByPosting, postingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LotConsumption{}
+	for rows.Next() {
+		var i LotConsumption
+		if err := rows.Scan(
+			&i.PostingID,
+			&i.LotID,
+			&i.QuantityAmount,
+			&i.QuantityCommodity,
+			&i.BasisNum,
+			&i.BasisDen,
+			&i.BasisCommodity,
 		); err != nil {
 			return nil, err
 		}
@@ -308,6 +424,57 @@ func (q *Queries) ListOpenLotsByAccount(ctx context.Context, accountID pgtype.UU
 	return items, nil
 }
 
+const listOpenLotsByAccountForUpdate = `-- name: ListOpenLotsByAccountForUpdate :many
+SELECT id, account_id, opened_by, opened_on,
+       quantity_amount, quantity_commodity,
+       remaining_amount, remaining_commodity,
+       cost_amount, cost_commodity
+  FROM lots
+ WHERE account_id = $1 AND remaining_amount > 0
+ ORDER BY opened_on, id
+   FOR UPDATE
+`
+
+// The same reading as ListOpenLotsByAccount, taking a row lock on every lot it
+// returns.
+//
+// A disposal reads the open lots, decides what to consume, and writes the
+// reduced figures back. Two disposals on one account running at the same time
+// would otherwise both read the same lots, both find them sufficient, and both
+// commit — leaving the holding consumed twice and remaining_amount describing
+// neither. The lock makes the second one wait, re-read, and correctly run out
+// of units.
+func (q *Queries) ListOpenLotsByAccountForUpdate(ctx context.Context, accountID pgtype.UUID) ([]Lot, error) {
+	rows, err := q.db.Query(ctx, listOpenLotsByAccountForUpdate, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Lot{}
+	for rows.Next() {
+		var i Lot
+		if err := rows.Scan(
+			&i.ID,
+			&i.AccountID,
+			&i.OpenedBy,
+			&i.OpenedOn,
+			&i.QuantityAmount,
+			&i.QuantityCommodity,
+			&i.RemainingAmount,
+			&i.RemainingCommodity,
+			&i.CostAmount,
+			&i.CostCommodity,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setLotRemaining = `-- name: SetLotRemaining :exec
 UPDATE lots SET remaining_amount = $2 WHERE id = $1
 `
@@ -317,9 +484,11 @@ type SetLotRemainingParams struct {
 	RemainingAmount pgtype.Numeric
 }
 
-// The one mutable figure in the schema, and it is not history: a lot's
-// remaining quantity is a running position, not a record of an event. What
-// consumed it is recorded by the disposal transaction.
+// A lot's remaining quantity is a running position rather than a record of an
+// event, so it moves. What moved it is not lost: every movement appends a row
+// to lot_consumptions, and summing those reconstructs this figure from scratch.
+// The same relationship section 5.2 describes between a cached balance and the
+// postings it comes from.
 func (q *Queries) SetLotRemaining(ctx context.Context, arg SetLotRemainingParams) error {
 	_, err := q.db.Exec(ctx, setLotRemaining, arg.ID, arg.RemainingAmount)
 	return err

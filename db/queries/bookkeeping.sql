@@ -74,7 +74,62 @@ SELECT id, account_id, opened_by, opened_on,
  ORDER BY opened_on, id;
 
 -- name: SetLotRemaining :exec
--- The one mutable figure in the schema, and it is not history: a lot's
--- remaining quantity is a running position, not a record of an event. What
--- consumed it is recorded by the disposal transaction.
+-- A lot's remaining quantity is a running position rather than a record of an
+-- event, so it moves. What moved it is not lost: every movement appends a row
+-- to lot_consumptions, and summing those reconstructs this figure from scratch.
+-- The same relationship section 5.2 describes between a cached balance and the
+-- postings it comes from.
 UPDATE lots SET remaining_amount = $2 WHERE id = $1;
+
+-- name: InsertLotConsumption :exec
+-- One lot's part in one disposing line. Section 4.7: the basis is an exact
+-- fraction, never rounded on the way in.
+INSERT INTO lot_consumptions (
+    posting_id, lot_id,
+    quantity_amount, quantity_commodity,
+    basis_num, basis_den, basis_commodity
+) VALUES ($1, $2, $3, $4, $5, $6, $7);
+
+-- name: ListConsumptionsByPosting :many
+-- What one disposing line drew on. Ordered by the lots' own FIFO ordering, so
+-- a disposal reads back in the order it consumed — that order is derived from
+-- the lots rather than stored, because it is a trace of the selection and not
+-- a fact about the disposal.
+SELECT c.posting_id, c.lot_id,
+       c.quantity_amount, c.quantity_commodity,
+       c.basis_num, c.basis_den, c.basis_commodity
+  FROM lot_consumptions c
+  JOIN lots l ON l.id = c.lot_id
+ WHERE c.posting_id = $1
+ ORDER BY l.opened_on, l.id;
+
+-- name: ListConsumptionsByLot :many
+-- Everything that has ever drawn on one lot. This is what reconstructs
+-- remaining_amount from the appended record rather than trusting the running
+-- figure, which is the drift check the M2a notes ask for wherever a cached
+-- number exists.
+SELECT posting_id, lot_id,
+       quantity_amount, quantity_commodity,
+       basis_num, basis_den, basis_commodity
+  FROM lot_consumptions
+ WHERE lot_id = $1
+ ORDER BY posting_id;
+
+-- name: ListOpenLotsByAccountForUpdate :many
+-- The same reading as ListOpenLotsByAccount, taking a row lock on every lot it
+-- returns.
+--
+-- A disposal reads the open lots, decides what to consume, and writes the
+-- reduced figures back. Two disposals on one account running at the same time
+-- would otherwise both read the same lots, both find them sufficient, and both
+-- commit — leaving the holding consumed twice and remaining_amount describing
+-- neither. The lock makes the second one wait, re-read, and correctly run out
+-- of units.
+SELECT id, account_id, opened_by, opened_on,
+       quantity_amount, quantity_commodity,
+       remaining_amount, remaining_commodity,
+       cost_amount, cost_commodity
+  FROM lots
+ WHERE account_id = $1 AND remaining_amount > 0
+ ORDER BY opened_on, id
+   FOR UPDATE;

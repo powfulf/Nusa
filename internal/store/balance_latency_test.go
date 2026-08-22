@@ -204,7 +204,7 @@ func seedBenchmarkAccounts(t *testing.T, s *store.Store) []ledger.AccountID {
 func resetLedgerFor(t *testing.T, s *store.Store) {
 	t.Helper()
 	_, err := s.Pool().Exec(context.Background(),
-		`TRUNCATE audit_log, idempotency_keys, lots, postings, transactions`)
+		`TRUNCATE audit_log, idempotency_keys, lot_consumptions, lots, postings, transactions`)
 	require.NoError(t, err)
 }
 

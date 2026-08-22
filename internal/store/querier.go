@@ -49,6 +49,9 @@ type Querier interface {
 	InsertAccount(ctx context.Context, arg InsertAccountParams) error
 	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
 	InsertLot(ctx context.Context, arg InsertLotParams) error
+	// One lot's part in one disposing line. Section 4.7: the basis is an exact
+	// fraction, never rounded on the way in.
+	InsertLotConsumption(ctx context.Context, arg InsertLotConsumptionParams) error
 	InsertPosting(ctx context.Context, arg InsertPostingParams) error
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) error
 	InsertUser(ctx context.Context, id pgtype.UUID) error
@@ -60,18 +63,40 @@ type Querier interface {
 	ListAuditEntriesForEntity(ctx context.Context, arg ListAuditEntriesForEntityParams) ([]AuditLog, error)
 	// Every commodity this instance knows, core plus whatever Country Packs added.
 	ListCommodities(ctx context.Context) ([]Commodity, error)
+	// Everything that has ever drawn on one lot. This is what reconstructs
+	// remaining_amount from the appended record rather than trusting the running
+	// figure, which is the drift check the M2a notes ask for wherever a cached
+	// number exists.
+	ListConsumptionsByLot(ctx context.Context, lotID pgtype.UUID) ([]LotConsumption, error)
+	// What one disposing line drew on. Ordered by the lots' own FIFO ordering, so
+	// a disposal reads back in the order it consumed — that order is derived from
+	// the lots rather than stored, because it is a trace of the selection and not
+	// a fact about the disposal.
+	ListConsumptionsByPosting(ctx context.Context, postingID pgtype.UUID) ([]LotConsumption, error)
 	// FIFO order: oldest first, identity breaking the tie so the same disposal
 	// computes the same gain on every run.
 	ListOpenLotsByAccount(ctx context.Context, accountID pgtype.UUID) ([]Lot, error)
+	// The same reading as ListOpenLotsByAccount, taking a row lock on every lot it
+	// returns.
+	//
+	// A disposal reads the open lots, decides what to consume, and writes the
+	// reduced figures back. Two disposals on one account running at the same time
+	// would otherwise both read the same lots, both find them sufficient, and both
+	// commit — leaving the holding consumed twice and remaining_amount describing
+	// neither. The lock makes the second one wait, re-read, and correctly run out
+	// of units.
+	ListOpenLotsByAccountForUpdate(ctx context.Context, accountID pgtype.UUID) ([]Lot, error)
 	// Ordered by the ordinal the author wrote, which is the whole reason that
 	// column exists. Served by the same unique index that enforces it.
 	ListPostingsByTransaction(ctx context.Context, transactionID pgtype.UUID) ([]Posting, error)
 	// Civil dates, both counted. Only txn_date decides; occurred_at is never
 	// consulted, so the answer is the same for every reader in every zone.
 	ListTransactionsBetween(ctx context.Context, arg ListTransactionsBetweenParams) ([]Transaction, error)
-	// The one mutable figure in the schema, and it is not history: a lot's
-	// remaining quantity is a running position, not a record of an event. What
-	// consumed it is recorded by the disposal transaction.
+	// A lot's remaining quantity is a running position rather than a record of an
+	// event, so it moves. What moved it is not lost: every movement appends a row
+	// to lot_consumptions, and summing those reconstructs this figure from scratch.
+	// The same relationship section 5.2 describes between a cached balance and the
+	// postings it comes from.
 	SetLotRemaining(ctx context.Context, arg SetLotRemainingParams) error
 	SubtreeBalanceAsOf(ctx context.Context, arg SubtreeBalanceAsOfParams) ([]SubtreeBalanceAsOfRow, error)
 	// The whole-book form of 5.1. It must always be zero: each transaction sums to

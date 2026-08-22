@@ -19,7 +19,7 @@ import (
 // actor in place. Accounts are the fixture; transactions are the subject.
 func resetLedger(rt *rapid.T, s *store.Store) {
 	_, err := s.Pool().Exec(context.Background(),
-		`TRUNCATE audit_log, idempotency_keys, lots, postings, transactions`)
+		`TRUNCATE audit_log, idempotency_keys, lot_consumptions, lots, postings, transactions`)
 	if err != nil {
 		rt.Fatalf("reset ledger tables: %v", err)
 	}
