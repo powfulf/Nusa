@@ -184,15 +184,34 @@ func unbalancedError(err error) bool {
 // and it arrives as SQLSTATE 22021, an error naming neither the field nor the
 // fix.
 //
-// So it is refused here, by name, before anything is written. Not stripped:
-// quietly mutating what someone typed is exactly what this project does not
-// do, and a payee that silently loses a character is a payee that no longer
-// matches the one in the bank statement.
+// THIS DUPLICATES ledger.validateText, AND THE DUPLICATION IS DELIBERATE.
+// KEEP IT — but keep it for the right reason, which is narrower than it looks.
 //
-// Whether this belongs in the domain instead is an open question. NUL is
-// rejected by JSON, by C string APIs, by filenames and by HTTP headers, so
-// "text a ledger can hold" is arguably a domain rule that PostgreSQL merely
-// noticed first. See the M2a notes; M2b is where the domain is unfrozen.
+// The rule lives in the domain, where it belongs: "text a ledger can hold" is a
+// fact about the ledger rather than about PostgreSQL, which merely noticed it
+// first. NewTransaction, NewPosting and NewAccount all refuse NUL.
+//
+// THIS IS A REGRESSION GUARD, NOT A BYPASS GUARD, and the distinction matters
+// enough to spell out. The deferred balance trigger is a bypass guard: it lives
+// in the database, so it still fires for an importer, a rule engine or a psql
+// session that never goes near Go. This check is not that. It takes a
+// ledger.Transaction and a ledger.Account, and neither of those can carry a NUL
+// — the constructors refuse to build one. So nothing that reaches this function
+// today can fail it: it is unreachable through its own signature, and no test
+// can drive it without first weakening the domain.
+//
+// What it does catch is the domain rule being loosened or lost in a later
+// refactor. That was proved by deleting the check in ledger.validateText: this
+// is what then surfaced, naming the field, instead of a bare SQLSTATE from
+// PostgreSQL hundreds of lines away. That is worth keeping, and it is a smaller
+// claim than the trigger's.
+//
+// The bypass layer for NUL is PostgreSQL itself: a text column cannot hold one,
+// whoever is writing. TestPostgresRefusesNulWhenTheDomainIsBypassedEntirely
+// covers that, by writing straight to the table.
+//
+// Refused, never stripped. Quietly mutating what someone typed is how a payee
+// stops matching the bank statement it was copied from, with no error anywhere.
 func nulNotAllowed(field, value string) error {
 	if i := strings.IndexByte(value, 0); i >= 0 {
 		return fmt.Errorf("%w: %s contains a NUL byte at offset %d, and text columns cannot hold one",

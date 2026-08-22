@@ -152,6 +152,9 @@ func NewAccount(spec AccountSpec) (Account, error) {
 	if strings.TrimSpace(spec.Name) == "" {
 		return Account{}, fmt.Errorf("%w: account %q has no name", ErrInvalidAccount, spec.ID)
 	}
+	if err := validateText(fmt.Sprintf("account %s name", spec.ID), spec.Name); err != nil {
+		return Account{}, err
+	}
 	if spec.Parent == spec.ID {
 		return Account{}, fmt.Errorf("%w: account %q is its own parent", ErrAccountCycle, spec.ID)
 	}

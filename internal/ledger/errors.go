@@ -80,4 +80,8 @@ var (
 	// ErrInsufficientLots reports a disposal larger than the quantity the
 	// available lots hold.
 	ErrInsufficientLots = errors.New("insufficient lot quantity")
+
+	// ErrInvalidText reports user text carrying a code point a ledger entry
+	// cannot survive being written down and read back with. See validateText.
+	ErrInvalidText = errors.New("text contains a character a ledger cannot hold")
 )

@@ -79,6 +79,9 @@ func NewPosting(spec PostingSpec) (Posting, error) {
 		return Posting{}, fmt.Errorf("%w: posting %q holds %s but its rate prices %s",
 			ErrInvalidRate, spec.ID, spec.Amount.Commodity(), spec.Rate.Base())
 	}
+	if err := validateText(fmt.Sprintf("posting %s memo", spec.ID), spec.Memo); err != nil {
+		return Posting{}, err
+	}
 	return Posting{
 		id:      spec.ID,
 		account: spec.Account,
@@ -186,6 +189,16 @@ func NewTransaction(spec TransactionSpec) (Transaction, error) {
 	if len(spec.Postings) < 2 {
 		return Transaction{}, fmt.Errorf("%w: transaction %q has %d postings, a transaction needs at least 2",
 			ErrInvalidTransaction, spec.ID, len(spec.Postings))
+	}
+
+	for _, field := range []struct{ what, value string }{
+		{"payee", spec.Payee},
+		{"memo", spec.Memo},
+		{"timezone", spec.Timezone},
+	} {
+		if err := validateText(fmt.Sprintf("transaction %s %s", spec.ID, field.what), field.value); err != nil {
+			return Transaction{}, err
+		}
 	}
 
 	seen := make(map[PostingID]struct{}, len(spec.Postings))

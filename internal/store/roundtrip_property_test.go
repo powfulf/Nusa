@@ -4,6 +4,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"strings"
@@ -304,20 +305,65 @@ func containsCommodity(haystack []ledger.CommodityCode, needle ledger.CommodityC
 	return false
 }
 
-// drawText draws user text the store will accept.
+// drawText draws arbitrary user text, NUL included, and returns text the
+// domain accepts.
 //
-// NUL is excluded because the store refuses it, by name, before writing —
-// PostgreSQL text cannot hold it. That refusal is itself a finding of this
-// property test: the first run stopped on a generated payee containing U+0000,
-// which is a value no one would have thought to write by hand. TestTextWith-
-// ANulByteIsRefusedByName covers the rejection; this generator explores
-// everything the store does accept, which is every other awkward string there
-// is.
+// The bound used to be in the draw itself. That exclusion was the finding
+// rather than the fix: the first run of this property test stopped on a
+// generated payee containing U+0000 — a value no reviewer would ever have
+// written by hand — and PostgreSQL refused it with SQLSTATE 22021, an error
+// naming neither the field nor what to do about it. The store was taught to
+// refuse it by name and the generator was told to stop producing it, which
+// left a bound in the generator standing in for a rule nobody had decided yet.
+//
+// The rule is decided now: internal/ledger refuses NUL, because "text a ledger
+// can hold" is a fact about the ledger and not about whichever database is
+// underneath. So the draw produces it again and the refusal is asserted here,
+// against the domain — and then the value is stripped so the case can go on to
+// do what this test is actually for.
+//
+// Ending the case at the refusal instead was tried, and was wrong. Over 30
+// characters of rapid's default rune set, NUL is common: most cases stopped
+// before writing anything, and the whole round-trip suite ran in eight seconds
+// instead of a hundred while proving a fraction as much. The runtime is what
+// gave it away — the suite still passed, and passed faster. A cheaper test
+// that still goes green is the hardest kind of regression to notice.
 func drawText(rt *rapid.T, label string, n int) string {
-	return strings.Map(dropNul, rapid.StringN(0, n, n).Draw(rt, label))
+	raw := rapid.StringN(0, n, n).Draw(rt, label)
+	if !strings.ContainsRune(raw, 0) {
+		return raw
+	}
+	requireTheDomainRefusesNul(rt, raw)
+	return strings.Map(dropNul, raw)
 }
 
-// dropNul removes the one code point PostgreSQL text cannot hold.
+// requireTheDomainRefusesNul checks that the value the generator just produced
+// is refused by internal/ledger rather than by anything further down.
+//
+// Which layer refuses it is the whole point. Before the rule moved into the
+// domain this arrived as a SQLSTATE from PostgreSQL, hundreds of lines away
+// from the field that caused it.
+func requireTheDomainRefusesNul(rt *rapid.T, value string) {
+	_, err := ledger.NewPosting(ledger.PostingSpec{
+		ID:      ledger.PostingID(testID("prop:nul-probe")),
+		Account: ledger.AccountID(testID("prop:any:1")),
+		Amount:  mustPropertyMoney("IDR", big.NewInt(1)),
+		Memo:    value,
+	})
+	if !errors.Is(err, ledger.ErrInvalidText) {
+		rt.Fatalf("the domain accepted text containing a NUL: %q (error: %v)", value, err)
+	}
+}
+
+func mustPropertyMoney(code ledger.CommodityCode, amount *big.Int) ledger.Money {
+	m, err := ledger.NewMoney(code, amount)
+	if err != nil {
+		panic(fmt.Sprintf("build probe money: %v", err))
+	}
+	return m
+}
+
+// dropNul removes the one code point a ledger entry cannot survive.
 func dropNul(r rune) rune {
 	if r == 0 {
 		return -1
