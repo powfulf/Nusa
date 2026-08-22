@@ -46,6 +46,15 @@ type PostingSpec struct {
 
 	// Memo is the user's note about this line. User data, never translated.
 	Memo string
+
+	// Reverses names the line this one undoes, on a reversing transaction.
+	// Optional, and set by Reverse rather than by hand.
+	//
+	// It is line-level provenance: a transaction-level link says which entry
+	// was corrected, but only this says which line answered which. A
+	// transaction that acquires two things at once has two lines that a
+	// transaction-level link cannot tell apart.
+	Reverses PostingID
 }
 
 // Posting is one line of a transaction: an amount landing in one account.
@@ -57,11 +66,12 @@ type PostingSpec struct {
 // deletion is a tombstone. History is append-only because the type gives no
 // other option.
 type Posting struct {
-	id      PostingID
-	account AccountID
-	amount  Money
-	rate    Rate
-	memo    string
+	id       PostingID
+	account  AccountID
+	amount   Money
+	rate     Rate
+	memo     string
+	reverses PostingID
 }
 
 // NewPosting validates a spec and returns the posting it describes.
@@ -82,12 +92,21 @@ func NewPosting(spec PostingSpec) (Posting, error) {
 	if err := validateText(fmt.Sprintf("posting %s memo", spec.ID), spec.Memo); err != nil {
 		return Posting{}, err
 	}
+	if spec.Reverses != "" {
+		if err := validateIDAs(ErrInvalidReversal, "reversed posting id", string(spec.Reverses)); err != nil {
+			return Posting{}, err
+		}
+		if spec.Reverses == spec.ID {
+			return Posting{}, fmt.Errorf("%w: posting %q reverses itself", ErrInvalidReversal, spec.ID)
+		}
+	}
 	return Posting{
-		id:      spec.ID,
-		account: spec.Account,
-		amount:  spec.Amount,
-		rate:    spec.Rate,
-		memo:    spec.Memo,
+		id:       spec.ID,
+		account:  spec.Account,
+		amount:   spec.Amount,
+		rate:     spec.Rate,
+		memo:     spec.Memo,
+		reverses: spec.Reverses,
 	}, nil
 }
 
@@ -109,6 +128,10 @@ func (p Posting) Rate() Rate { return p.rate }
 
 // Memo returns the user's note about this line.
 func (p Posting) Memo() string { return p.memo }
+
+// Reverses returns the line this one undoes, or the empty ID if it undoes
+// nothing.
+func (p Posting) Reverses() PostingID { return p.reverses }
 
 // String renders the posting for logs and test failures.
 func (p Posting) String() string {
@@ -152,6 +175,41 @@ type TransactionSpec struct {
 
 	// Postings are the lines. At least two, summing to zero per commodity.
 	Postings []Posting
+
+	// Reverses names the transaction this one undoes, and ReversalKind says
+	// why. Both are set together or neither is; see Reverse, which is the only
+	// thing that should be filling them in.
+	Reverses     TransactionID
+	ReversalKind ReversalKind
+}
+
+// validateReversal checks that a spec either describes a reversal completely
+// or does not claim to be one at all.
+//
+// Half a link is worse than none: a kind with nothing to reverse is a
+// transaction claiming to undo something unnamed, and a link with no kind
+// undoes something without saying whether the event happened. The database
+// carries the same rule in transactions_reversal_is_complete, so a value that
+// cannot be built here could not have been stored either.
+func (spec TransactionSpec) validateReversal() error {
+	if spec.Reverses == "" {
+		if spec.ReversalKind != NotReversal {
+			return fmt.Errorf("%w: transaction %q is a %s but names nothing to reverse",
+				ErrInvalidReversal, spec.ID, spec.ReversalKind)
+		}
+		return nil
+	}
+	if !spec.ReversalKind.IsValid() {
+		return fmt.Errorf("%w: transaction %q reverses %q without saying whether it is a correction or a deletion",
+			ErrInvalidReversal, spec.ID, spec.Reverses)
+	}
+	if err := validateIDAs(ErrInvalidReversal, "reversed transaction id", string(spec.Reverses)); err != nil {
+		return err
+	}
+	if spec.Reverses == spec.ID {
+		return fmt.Errorf("%w: transaction %q reverses itself", ErrInvalidReversal, spec.ID)
+	}
+	return nil
 }
 
 // Transaction is a set of postings that together move value without creating
@@ -161,13 +219,15 @@ type TransactionSpec struct {
 // cannot exist. There is no separate "validate" step a caller might forget,
 // and no window in which a half-built transaction is reachable.
 type Transaction struct {
-	id         TransactionID
-	date       Date
-	occurredAt time.Time
-	timezone   string
-	payee      string
-	memo       string
-	postings   []Posting
+	id           TransactionID
+	date         Date
+	occurredAt   time.Time
+	timezone     string
+	payee        string
+	memo         string
+	postings     []Posting
+	reverses     TransactionID
+	reversalKind ReversalKind
 }
 
 // NewTransaction validates a spec and returns the transaction it describes.
@@ -201,6 +261,10 @@ func NewTransaction(spec TransactionSpec) (Transaction, error) {
 		}
 	}
 
+	if err := spec.validateReversal(); err != nil {
+		return Transaction{}, err
+	}
+
 	seen := make(map[PostingID]struct{}, len(spec.Postings))
 	for i, p := range spec.Postings {
 		if !p.IsValid() {
@@ -227,13 +291,15 @@ func NewTransaction(spec TransactionSpec) (Transaction, error) {
 	}
 
 	return Transaction{
-		id:         spec.ID,
-		date:       spec.Date,
-		occurredAt: spec.OccurredAt,
-		timezone:   spec.Timezone,
-		payee:      spec.Payee,
-		memo:       spec.Memo,
-		postings:   slices.Clone(spec.Postings),
+		id:           spec.ID,
+		date:         spec.Date,
+		occurredAt:   spec.OccurredAt,
+		timezone:     spec.Timezone,
+		payee:        spec.Payee,
+		memo:         spec.Memo,
+		postings:     slices.Clone(spec.Postings),
+		reverses:     spec.Reverses,
+		reversalKind: spec.ReversalKind,
 	}, nil
 }
 
@@ -259,6 +325,16 @@ func (t Transaction) Payee() string { return t.payee }
 
 // Memo returns the user's note about the transaction.
 func (t Transaction) Memo() string { return t.memo }
+
+// Reverses returns the transaction this one undoes, or the empty ID if it
+// undoes nothing.
+func (t Transaction) Reverses() TransactionID { return t.reverses }
+
+// ReversalKind returns why this transaction was reversed, or NotReversal.
+func (t Transaction) ReversalKind() ReversalKind { return t.reversalKind }
+
+// IsReversal reports whether this transaction undoes another one.
+func (t Transaction) IsReversal() bool { return t.reverses != "" }
 
 // Postings returns the lines, in the order they were given. The slice is a
 // copy, so appending to it or replacing an element changes nothing here.

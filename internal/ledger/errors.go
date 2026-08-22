@@ -84,4 +84,10 @@ var (
 	// ErrInvalidText reports user text carrying a code point a ledger entry
 	// cannot survive being written down and read back with. See validateText.
 	ErrInvalidText = errors.New("text contains a character a ledger cannot hold")
+
+	// ErrInvalidReversal reports a reversal that does not describe what it
+	// undoes: a link without a kind, a kind without a link, a transaction
+	// reversing itself, or a set of lines that does not answer the original
+	// one for one.
+	ErrInvalidReversal = errors.New("invalid reversal")
 )
