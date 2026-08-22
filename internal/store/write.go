@@ -146,6 +146,13 @@ func fingerprintTransaction(t ledger.Transaction) [32]byte {
 	if occurred := t.OccurredAt(); !occurred.IsZero() {
 		field("occurred", occurred.UTC().Format(time.RFC3339Nano))
 	}
+	// What a transaction undoes is part of what it is. Two corrections of the
+	// same original differ only here and in their identities, and a
+	// fingerprint blind to this would let the second one be answered with the
+	// first one's result — a correction silently not applied.
+	if t.IsReversal() {
+		field("reverses", string(t.Reverses()), t.ReversalKind().String())
+	}
 	// In the order the author wrote them, because that order is preserved and
 	// a reordered transaction is a different request.
 	for _, p := range t.Postings() {
@@ -153,6 +160,9 @@ func fingerprintTransaction(t ledger.Transaction) [32]byte {
 			p.Amount().Amount().String(), string(p.Amount().Commodity()), p.Memo())
 		if rate := p.Rate(); !rate.IsZero() {
 			field("rate", string(rate.Base()), string(rate.Quote()), rate.Value().RatString())
+		}
+		if reversed := p.Reverses(); reversed != "" {
+			field("reverses-posting", string(reversed))
 		}
 	}
 
@@ -172,6 +182,41 @@ func unbalancedError(err error) bool {
 		return false
 	}
 	return pgErr.ConstraintName == "transaction_is_balanced"
+}
+
+// missingReversalTarget reports a reversal naming something that is not in the
+// book.
+//
+// The foreign key catches it, but a bare foreign_key_violation names a
+// constraint rather than the mistake. The caller supplied an identity for
+// something it believed it was undoing, and what it needs to hear is that no
+// such entry exists.
+func missingReversalTarget(err error) bool {
+	return constraintNamed(err, "23503",
+		"transactions_reverses_id_fkey", "postings_reverses_posting_id_fkey")
+}
+
+// alreadyReversed reports a second reversal of something already reversed.
+//
+// reverses_id and reverses_posting_id are both UNIQUE, which is how §5.3 stops
+// a history where one entry was undone twice and the book is short by its
+// amount. Without this the caller would see a unique_violation naming an index.
+func alreadyReversed(err error) bool {
+	return constraintNamed(err, "23505",
+		"transactions_reverses_id_key", "postings_reverses_posting_id_key")
+}
+
+func constraintNamed(err error, code string, names ...string) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != code {
+		return false
+	}
+	for _, name := range names {
+		if pgErr.ConstraintName == name {
+			return true
+		}
+	}
+	return false
 }
 
 // nulNotAllowed reports text that PostgreSQL cannot store.

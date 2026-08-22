@@ -33,6 +33,14 @@ var (
 	// transaction that never passed through the domain.
 	ErrInvalidWrite = errors.New("invalid write request")
 
+	// ErrAlreadyReversed reports a second attempt to reverse something that
+	// has already been reversed.
+	//
+	// The database refuses it through the UNIQUE on reverses_id, which is what
+	// keeps §5.3 honest: an entry undone twice would leave the book short by
+	// its amount, with two apparently legitimate reversals to explain it.
+	ErrAlreadyReversed = errors.New("already reversed")
+
 	// ErrCorrupt reports a stored row that cannot be turned back into a domain
 	// value. It means the database holds something the domain would never have
 	// produced, so it is reported loudly rather than repaired quietly.

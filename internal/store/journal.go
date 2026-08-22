@@ -186,7 +186,7 @@ func (s *Store) SaveTransaction(
 	if err != nil {
 		return Result{}, err
 	}
-	if err := writeAudit(ctx, q, w, "create", "transaction", string(txn.ID()), diff); err != nil {
+	if err := writeAudit(ctx, q, w, auditAction(txn), "transaction", string(txn.ID()), diff); err != nil {
 		return Result{}, err
 	}
 
@@ -219,15 +219,33 @@ func writeTransactionRow(ctx context.Context, q *Queries, txn ledger.Transaction
 	if err != nil {
 		return err
 	}
+	reverses, err := uuidFrom(string(txn.Reverses()))
+	if err != nil {
+		return err
+	}
 
+	// Both reversal columns or neither, which the domain has already checked
+	// and transactions_reversal_is_complete checks again. ReversalKind renders
+	// as the empty string when there is nothing to reverse, and textFrom maps
+	// that to NULL.
 	if err := q.InsertTransaction(ctx, InsertTransactionParams{
-		ID:         id,
-		TxnDate:    dateFrom(txn.Date()),
-		OccurredAt: timestampFrom(txn.OccurredAt()),
-		Timezone:   txn.Timezone(),
-		Payee:      txn.Payee(),
-		Memo:       txn.Memo(),
+		ID:           id,
+		TxnDate:      dateFrom(txn.Date()),
+		OccurredAt:   timestampFrom(txn.OccurredAt()),
+		Timezone:     txn.Timezone(),
+		Payee:        txn.Payee(),
+		Memo:         txn.Memo(),
+		ReversesID:   reverses,
+		ReversalKind: textFrom(txn.ReversalKind().String()),
 	}); err != nil {
+		if missingReversalTarget(err) {
+			return fmt.Errorf("%w: transaction %s reverses %s, which is not in the book",
+				ErrNotFound, txn.ID(), txn.Reverses())
+		}
+		if alreadyReversed(err) {
+			return fmt.Errorf("%w: transaction %s has already been reversed",
+				ErrAlreadyReversed, txn.Reverses())
+		}
 		return fmt.Errorf("insert transaction %s: %w", txn.ID(), err)
 	}
 
@@ -256,6 +274,10 @@ func writePostingRow(ctx context.Context, q *Queries, txn ledger.Transaction, or
 	if err != nil {
 		return fmt.Errorf("posting %s: %w", p.ID(), err)
 	}
+	reverses, err := uuidFrom(string(p.Reverses()))
+	if err != nil {
+		return err
+	}
 	rate := rateFrom(p.Rate())
 
 	// The ordinal is the position the author wrote, carried so the transaction
@@ -274,7 +296,20 @@ func writePostingRow(ctx context.Context, q *Queries, txn ledger.Transaction, or
 		RateNum:       rate.num,
 		RateDen:       rate.den,
 		Memo:          p.Memo(),
+		// Line-level provenance. The transaction-level link says which entry
+		// was undone; only this says which line answered which, and a
+		// transaction that acquires two things at once has two lines the
+		// transaction-level link cannot tell apart.
+		ReversesPostingID: reverses,
 	}); err != nil {
+		if missingReversalTarget(err) {
+			return fmt.Errorf("%w: posting %s reverses %s, which is not in the book",
+				ErrNotFound, p.ID(), p.Reverses())
+		}
+		if alreadyReversed(err) {
+			return fmt.Errorf("%w: posting %s has already been reversed",
+				ErrAlreadyReversed, p.Reverses())
+		}
 		return fmt.Errorf("insert posting %s: %w", p.ID(), err)
 	}
 	return nil
@@ -357,11 +392,12 @@ func (s *Store) LoadTransaction(ctx context.Context, id ledger.TransactionID) (l
 			return ledger.Transaction{}, fmt.Errorf("posting %s: %w", uuidTo(pr.ID), err)
 		}
 		posting, err := ledger.NewPosting(ledger.PostingSpec{
-			ID:      ledger.PostingID(uuidTo(pr.ID)),
-			Account: ledger.AccountID(uuidTo(pr.AccountID)),
-			Amount:  amount,
-			Rate:    rate,
-			Memo:    pr.Memo,
+			ID:       ledger.PostingID(uuidTo(pr.ID)),
+			Account:  ledger.AccountID(uuidTo(pr.AccountID)),
+			Amount:   amount,
+			Rate:     rate,
+			Memo:     pr.Memo,
+			Reverses: ledger.PostingID(uuidTo(pr.ReversesPostingID)),
 		})
 		if err != nil {
 			return ledger.Transaction{}, fmt.Errorf("%w: posting %s: %w", ErrCorrupt, uuidTo(pr.ID), err)
@@ -374,19 +410,47 @@ func (s *Store) LoadTransaction(ctx context.Context, id ledger.TransactionID) (l
 		return ledger.Transaction{}, fmt.Errorf("transaction %s: %w", id, err)
 	}
 
+	// A kind the domain cannot name means the row was written by something
+	// that bypassed both the domain and the check constraint, so it is
+	// reported rather than coerced into the nearest valid value.
+	kind, err := ledger.ParseReversalKind(textTo(row.ReversalKind))
+	if err != nil {
+		return ledger.Transaction{}, fmt.Errorf("%w: transaction %s: %w", ErrCorrupt, id, err)
+	}
+
 	txn, err := ledger.NewTransaction(ledger.TransactionSpec{
-		ID:         ledger.TransactionID(uuidTo(row.ID)),
-		Date:       date,
-		OccurredAt: timestampTo(row.OccurredAt),
-		Timezone:   row.Timezone,
-		Payee:      row.Payee,
-		Memo:       row.Memo,
-		Postings:   postings,
+		ID:           ledger.TransactionID(uuidTo(row.ID)),
+		Date:         date,
+		OccurredAt:   timestampTo(row.OccurredAt),
+		Timezone:     row.Timezone,
+		Payee:        row.Payee,
+		Memo:         row.Memo,
+		Postings:     postings,
+		Reverses:     ledger.TransactionID(uuidTo(row.ReversesID)),
+		ReversalKind: kind,
 	})
 	if err != nil {
 		return ledger.Transaction{}, fmt.Errorf("%w: transaction %s: %w", ErrCorrupt, id, err)
 	}
 	return txn, nil
+}
+
+// auditAction names what a write did, in the audit log's vocabulary.
+//
+// Every one of these is an append — nothing is ever mutated or removed — so at
+// the level of rows they are all the same event. They are not the same event
+// to a person reading their own history, and "who deleted this, and when"
+// should be answerable by filtering the log rather than by joining the ledger
+// back onto itself to see which transactions turned out to be tombstones.
+func auditAction(txn ledger.Transaction) string {
+	switch txn.ReversalKind() {
+	case ledger.Correction:
+		return "correct"
+	case ledger.Deletion:
+		return "delete"
+	default:
+		return "create"
+	}
 }
 
 // transactionDiff renders what was written, for the audit log.
@@ -397,33 +461,43 @@ func (s *Store) LoadTransaction(ctx context.Context, id ledger.TransactionID) (l
 // stored and not a rendering of them.
 func transactionDiff(txn ledger.Transaction) ([]byte, error) {
 	type postingDiff struct {
-		ID      string       `json:"id"`
-		Account string       `json:"account"`
-		Amount  ledger.Money `json:"amount"`
-		Rate    *ledger.Rate `json:"rate,omitempty"`
-		Memo    string       `json:"memo,omitempty"`
+		ID       string       `json:"id"`
+		Account  string       `json:"account"`
+		Amount   ledger.Money `json:"amount"`
+		Rate     *ledger.Rate `json:"rate,omitempty"`
+		Memo     string       `json:"memo,omitempty"`
+		Reverses string       `json:"reverses,omitempty"`
 	}
 	type diff struct {
-		ID       string        `json:"id"`
-		Date     ledger.Date   `json:"date"`
-		Payee    string        `json:"payee,omitempty"`
-		Memo     string        `json:"memo,omitempty"`
-		Postings []postingDiff `json:"postings"`
+		ID           string        `json:"id"`
+		Date         ledger.Date   `json:"date"`
+		Payee        string        `json:"payee,omitempty"`
+		Memo         string        `json:"memo,omitempty"`
+		Reverses     string        `json:"reverses,omitempty"`
+		ReversalKind string        `json:"reversal_kind,omitempty"`
+		Postings     []postingDiff `json:"postings"`
 	}
 
 	out := diff{
-		ID:       string(txn.ID()),
-		Date:     txn.Date(),
-		Payee:    txn.Payee(),
-		Memo:     txn.Memo(),
-		Postings: make([]postingDiff, 0, len(txn.Postings())),
+		ID:    string(txn.ID()),
+		Date:  txn.Date(),
+		Payee: txn.Payee(),
+		Memo:  txn.Memo(),
+		// §10 wants the audit log to say what was done. "A transaction was
+		// created" is not the whole answer when the transaction was a
+		// deletion, and reconstructing that from the ledger later means
+		// joining rows the log was supposed to save anyone from reading.
+		Reverses:     string(txn.Reverses()),
+		ReversalKind: txn.ReversalKind().String(),
+		Postings:     make([]postingDiff, 0, len(txn.Postings())),
 	}
 	for _, p := range txn.Postings() {
 		entry := postingDiff{
-			ID:      string(p.ID()),
-			Account: string(p.Account()),
-			Amount:  p.Amount(),
-			Memo:    p.Memo(),
+			ID:       string(p.ID()),
+			Account:  string(p.Account()),
+			Amount:   p.Amount(),
+			Memo:     p.Memo(),
+			Reverses: string(p.Reverses()),
 		}
 		if rate := p.Rate(); !rate.IsZero() {
 			entry.Rate = &rate
