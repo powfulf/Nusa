@@ -277,6 +277,12 @@ satisfied by editing the check.
 - Golden-file tests for every importer and every Country Pack.
 - Every bug fix starts with a failing test that reproduces it.
 - Coverage target: 85% in `internal/ledger`, 60% elsewhere. Coverage is a floor, not a goal.
+- **A guard is not installed until you have watched it fail.** Decide what it must cover *before* writing it, then break each item on that list in turn and confirm the failure. "The check passes" is not evidence the check works — a check that reads nothing also passes.
+- **An assertion inside a property test is only as good as the generator feeding it.** Before trusting one, ask whether the generated data can even contain the thing being asserted about. Prove it by breaking the code that assertion covers and watching *that* test fail, not a neighbour.
+- **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
+- **A concurrency test that does not force the interleaving is a test of the scheduler's mood.** Arrange the collision — hold the contended rows from the test itself — rather than starting goroutines and hoping.
+- **A large change in how long a suite takes is a signal, and it must be chased in either direction.** A suite that suddenly got *faster* while still passing is the more suspicious of the two, precisely because nobody investigates good news: a slowdown gets a ticket, a speed-up gets a shrug. Absent a change that explains it, a suite that got much faster has usually stopped testing something, and it announces this by going green sooner.
+- **A property test whose generator can produce input that is rejected early must report what fraction of cases actually reached the path under test.** Rejected input ends a case before the assertions run, so the check count says nothing about how many times the subject was exercised. Green with no such number is not evidence of coverage — it is evidence that something ran. Either count and log it, or arrange for rejected input to be repaired and the case continued.
 
 ## 12. Working conventions
 
@@ -1004,3 +1010,219 @@ additive schema that touches no existing row.
 | `fx_rates`. No domain type and no consumer yet, so its shape would be a guess. Per-posting rates that §5.4 requires are already stored | M6 |
 | Why a subtree balance degrades faster than a single-account balance | M6 |
 | Cursor pagination, DTOs, OpenAPI | M2b |
+
+### M2b Phase 0 — the domain freeze, opened once and closed again
+
+The three debts M2a left against `internal/ledger`, plus the open question it
+raised, done together in one deliberate opening of the freeze and before a
+single line of HTTP exists. **The freeze is back on: `internal/ledger` is
+closed to change again, and M2b's remaining work — auth, sessions, TOTP, rate
+limiting, REST, OpenAPI — adds nothing to it.**
+
+Sequencing them ahead of authentication was the point. If the M1 model were
+wrong about reversal, this is where it shows, with no DTO shapes and no
+handlers built on top of the answer.
+
+#### NUL moved into the domain, and the store keeps checking anyway
+
+`NewTransaction`, `NewPosting` and `NewAccount` now refuse U+0000 in payee,
+memo, timezone and account name. "Text a ledger can hold" is a fact about the
+ledger, not about PostgreSQL — a value carrying NUL survives neither JSON, nor
+a C string API, nor a filename, nor an HTTP header — and a rule enforced only
+by the current storage engine is one a future importer writes around without
+noticing. Refused, never stripped: silently dropping a character is how a payee
+stops matching the statement it was copied from.
+
+This is the one change of the four that *narrows* what was previously accepted,
+which is why it was decided first. Doing it after the reversal builder would
+have meant writing that builder's validation twice.
+
+The store's own check stays, and the redundancy is deliberate — the comment on
+`nulNotAllowed` says so, at length, so a later session does not tidy it away.
+It is not, however, the same shape of redundancy as the deferred balance
+trigger, and the difference is worth being exact about. There are three layers:
+
+| Layer | Fires when | Proved by |
+| --- | --- | --- |
+| `internal/ledger` | always; nothing carrying NUL can be built | breaking each of the five call sites in turn |
+| `internal/store` | only if the domain rule is weakened | removing the domain check: the store's error surfaced, not a SQLSTATE |
+| PostgreSQL | when Go is bypassed entirely | a direct `INSERT` through the pool, refused with 22021 |
+
+The middle layer is unreachable through its own signature today, because a
+`ledger.Transaction` cannot carry a NUL. That makes it a regression guard
+rather than a bypass guard, which is a smaller claim than the trigger's and is
+now stated as such in the code.
+
+#### One reversal builder, and the rate it must not recompute
+
+`ledger.Reverse` serves corrections and tombstones through a `Kind` parameter.
+Two builders would have been two places for §5.3 to drift apart.
+
+**Every posting's `Rate` is carried across verbatim.** This is the load-bearing
+detail. A reversal that priced itself at today's rate would leave the pair
+failing to cancel by however far the rate had moved — a fabricated gain nobody
+booked — and §5.4's promise that last year's report still says what it said
+would be gone. There is a hand-written test at a rate two years stale, and a
+property test that asserts it over every generated transaction.
+
+Three smaller decisions:
+
+- **The new posting identities arrive as a map keyed by the original posting's
+  identity**, never as a slice in posting order. §5.7 forbids pointing at a
+  posting by position, and a reordered slice would attach a reversing line to
+  the wrong original with no error anywhere. A property test reverses a
+  transaction and its own permutation and compares the results by what each
+  line answers.
+- **The date is required, never defaulted.** Booking a reversal today leaves
+  last year's report intact; booking it on the original's date rewrites that
+  period. Which is right is an accounting decision, and a domain that guesses
+  is a domain that silently moves money between periods.
+- **A reversal may itself be reversed.** Undoing a deletion is a real thing
+  people do, and refusing it would be a policy the domain has no business
+  inventing. `reverses_id` being UNIQUE still stops the same entry being
+  reversed twice.
+
+The audit log now distinguishes `create`, `correct`, `delete` and `dispose`.
+All four are appends; they are not the same event to a person reading their own
+history, and "who deleted this" should be answerable by filtering the log
+rather than by joining the ledger back onto itself.
+
+#### `lot_consumptions`, and the field that would have been lost
+
+The gap was not on anyone's list: a disposal reduced `lots.remaining_amount`
+and left no record of having done so. The running figure stayed correct and the
+history behind it was gone — which acquisitions a sale drew on, from which
+dates, at what price. That is unreconstructible rather than inconvenient, since
+FIFO depends on what was open at the moment of the disposal and later activity
+changes that. It was also the one place the ledger quietly overwrote itself,
+inside an UPDATE, in a book §5.3 makes append-only.
+
+**`Consumption.Basis` is a `ledger.Rat`, not a `Money`, and that is what the
+schema had to be built around.**
+
+Anyone meeting `basis_num` and `basis_den` will ask why this is not simply a
+`numeric` like every other amount. One line answers it: **sell 0,1 BTC out of a
+0,3 BTC lot that cost Rp 1.000.000, and the basis is 100.000.000 ÷ 3 minor
+units — 33.333.333,33… — which no `numeric(40,0)` can hold.**
+
+Rounding it to 33.333.333 would be rounding *in the middle* of a calculation,
+invisibly, once per consumed lot, and the rounded pieces would then not add
+back up to the million that was actually paid. §4.6 puts rounding at the last
+step only and §4.7 says anything that cannot stay a whole number of smallest
+units stays a `Rat` until `Round` is called on it deliberately. A stored basis
+is not the last step: a realised gain sums several of these and rounds once, at
+the end.
+
+So the basis is two `numeric` columns, reduced, with a positive denominator —
+exactly as a rate is stored, for exactly the same reason a rate cannot be a
+decimal. Nothing else in `Consumption` loses anything on the way to a row.
+
+- **The primary key is `(posting_id, lot_id)`**, with no identity minted for
+  it. §5.7 asks for an identity for everything that can be pointed at, and
+  nothing points at a consumption: it is the join between a line and a lot,
+  both of which already have one.
+- **Consumption order is not stored.** FIFO order is `(opened_on, id)` on the
+  lots, so it is derivable; more fundamentally, the order a policy picked lots
+  in is a trace of the algorithm, not a fact about the disposal. The set of
+  (lot, quantity, basis) determines the gain whichever order they came in.
+  *Which* policy chose them is a separate and real question once Country Packs
+  bring policies other than FIFO, and is deferred rather than guessed at.
+- **Two composite foreign keys** hold the commodity columns to the lot's own,
+  the same arrangement `postings` uses for its copy of `txn_date`.
+- **Lots are read `FOR UPDATE`** inside the writing transaction. Without it,
+  MVCC lets two concurrent disposals both read the original figure — a plain
+  read is never blocked by a row lock — and both consume the same units.
+
+`ledger` needed nothing new for any of this: `ConsumeFIFO`, `Lot.Consume` and
+`Consumption` were already sufficient. The whole third debt was store work.
+
+#### What went wrong, and the rules it produced
+
+Four guards were installed, passed, and were wrong. Every one was caught by
+breaking it, and none would have been caught by reading it.
+
+**A property test asserted something it never saw.** The reversal property test
+checked that rates are carried verbatim — over a generator that attaches no
+rates to anything. Deleting the line that carries the rate through `Reverse`
+failed only the single hand-written test. Fixed by drawing a rate onto every
+line first; the break then failed the property test too.
+> **Rule.** An assertion inside a property test is only as good as the
+> generator feeding it. Before trusting one, ask whether the generated data can
+> even contain the thing being asserted about — and prove it by breaking the
+> code the assertion covers and watching *that* test fail, not a neighbour.
+
+**A test isolated less than it claimed.** "Two different corrections are not
+taken for a replay" passed with the reversal link removed from the fingerprint,
+because the two originals also differed in payee. Any two reversals built by
+`Reverse` differ in their per-line links as well, so isolating the
+transaction-level field required building two reversals by hand with no
+line-level links at all — identical in every byte except what they undo.
+> **Rule.** When a guard covers one field, construct the case so that field is
+> the only difference. A test that would pass for three different reasons is a
+> test of none of them.
+
+**A concurrency test proved nothing.** Two goroutines calling `SaveDisposal`
+passed with the row lock removed: they rarely collide, and when they do not,
+the assertion holds for the wrong reason. Replaced with a third transaction
+that holds the lots first, so both writers are stopped at the same point and
+the collision is arranged rather than hoped for. The assertion changed too,
+from "one of them fails" to "the appended record and the running figure still
+describe the same lot", which is the property that actually matters.
+> **Rule.** A concurrency test that does not force the interleaving is a test
+> of the scheduler's mood. Arrange the collision with a lock held by the test
+> itself.
+
+**A test got twelve times faster and stayed green.** Letting the generator emit
+NUL and ending the case when the domain refused it looked correct and was: the
+domain did refuse, the store never saw one. But over 30 characters of rapid's
+default rune set NUL is common, so most cases stopped before writing anything
+and the entire round-trip suite fell from about a hundred seconds to eight —
+still passing, proving a fraction as much. The generator now asserts the
+refusal against the domain and then strips the NUL, so every case goes on to do
+the round trip it exists for.
+> **Rule.** Watch the runtime. A suite that suddenly gets much faster without
+> anything being optimised has usually stopped testing something, and it
+> announces this by passing. This is the same failure as a check that reads
+> nothing: green is not evidence.
+
+One smaller thing: `1.5/3` violates both `basis_terms_are_whole` and
+`basis_is_reduced`, and PostgreSQL does not promise which it reports. Asserting
+one constraint name by itself made the test depend on evaluation order rather
+than on the rule.
+
+#### Verification
+
+Everything below was run, and this lists the commands rather than their
+intentions. `make` is still not installed on this machine, so these are the
+commands behind the targets, not the targets (the M0 rule).
+
+- `go test -race -coverprofile=coverage.out ./...` — all packages pass.
+  `internal/ledger` 91,4% (floor 85), `internal/store` 68,3% (floor 60).
+- `./bin/golangci-lint run` — 0 issues. `./bin/golangci-lint fmt` changes
+  nothing.
+- `grep -rE "float64|float32" internal/ledger/` — no matches.
+- `go mod edit -json` — the Go directive is still 1.22. No dependency was added
+  this phase.
+- `./bin/sqlc generate` — byte-identical output on a second run.
+- **Migration 7 down.** Compared through the catalogue rather than a `pg_dump`
+  diff, because a dump carries a per-run nonce and comment noise. Every column,
+  constraint, index and function after `migrate down 1` from version 7 matches
+  a database built by applying migrations 1–6 directly, with one expected
+  difference: golang-migrate's own `schema_migrations` primary key, which the
+  manual application never creates. `schema_meta.version` reads 6 after the
+  down and 7 after the following up.
+- Every guard was broken on purpose and watched failing before being restored.
+  The coverage list was written before the guards, not derived from them
+  afterwards.
+
+#### Deliberately deferred
+
+| Deferred | Lands in |
+| --- | --- |
+| Authentication, sessions, TOTP, rate limiting with an explicit trusted-proxy list | M2b, next |
+| REST API, cursor pagination, structured errors, OpenAPI 3.1 | M2b |
+| The round-trip property generator does not produce reversals, so `requireSameTransaction` deliberately makes no assertion about reversal links — an assertion over data that cannot contain the thing is the trap described above. The dedicated store test covers them | M2b or M4 |
+| Recording *which* lot-selection policy chose a set of consumptions. Meaningless while FIFO is the only one | M8 |
+| A drift check that recomputes every lot's `remaining_amount` from `lot_consumptions` across the whole book. The per-lot reconstruction is tested; the book-wide sweep is not | M6 |
+| Why a subtree balance degrades faster than a single-account balance | M6 |
+| `fx_rates` | M6 |
