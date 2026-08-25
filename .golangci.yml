@@ -35,6 +35,30 @@ linters:
             - pkg: github.com/GaffaQ/Nusa/internal/store
               desc: dependencies point inward — store may import ledger, never the reverse
 
+        # The same list again, for the same reason, over a different package.
+        #
+        # internal/auth holds password hashing and TOTP: cryptography with an
+        # external oracle (RFC 6238's test vectors, a measured Argon2id cost)
+        # and no reason whatsoever to reach a database. Sessions and
+        # credentials are rows, so they live behind repository interfaces that
+        # internal/store implements — the same arrangement ledger has.
+        #
+        # The point is not tidiness. A crypto test that needs Docker is a
+        # crypto test that gets skipped, and the RFC vectors are worth nothing
+        # if they only run when someone remembers to start a container.
+        auth-is-pure-cryptography:
+          files:
+            - '**/internal/auth/**'
+          deny:
+            - pkg: database/sql
+              desc: internal/auth is pure — persistence belongs behind a repository interface in internal/store
+            - pkg: net/http
+              desc: internal/auth is pure — cookies, headers and handlers belong in internal/api
+            - pkg: github.com/GaffaQ/Nusa/internal/config
+              desc: internal/auth must not depend on configuration — parameters are passed in
+            - pkg: github.com/GaffaQ/Nusa/internal/store
+              desc: dependencies point inward — store may import auth, never the reverse
+
     revive:
       rules:
         - name: exported
@@ -45,9 +69,15 @@ linters:
     rules:
       # Test fixtures routinely contain things gosec dislikes, such as
       # hardcoded example credentials.
+      #
+      # noctx is excluded for a narrower reason: it exists to catch outbound
+      # requests made with no deadline, and httptest.NewRequest constructs a
+      # request rather than making one. Nothing is dialled, so there is nothing
+      # for a context to cancel.
       - path: _test\.go
         linters:
           - gosec
+          - noctx
 
 formatters:
   enable:
