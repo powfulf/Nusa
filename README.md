@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/logo.png" alt="Nusa wordmark" width="320">
+</p>
+
 # Nusa
 
 A self-hostable, open-source personal finance app: one correct double-entry ledger

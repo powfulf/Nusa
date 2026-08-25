@@ -3,6 +3,9 @@
 Nusa ships under two licences on purpose. This file explains which is which and
 why, so nobody has to infer it from file headers.
 
+It also states what the licences do **not** cover: the name and the brand
+assets are excluded from both. See *The name and the marks are not licensed*.
+
 ## What is licensed how
 
 | Path | Licence | Why |
@@ -10,9 +13,11 @@ why, so nobody has to infer it from file headers.
 | `internal/ledger/` | **MIT** — [`internal/ledger/LICENSE`](internal/ledger/LICENSE) | The double-entry engine. Reusable by anyone, in anything. |
 | The Country Pack specification | **MIT** | An interchange format is only useful if implementing it carries no obligations. |
 | Everything else | **AGPL-3.0-only** — [`LICENSE`](LICENSE) | The application itself. |
+| The name **Nusa** and the brand assets | **Neither.** Reserved — see below | A licence to the code is not a licence to the identity. |
 
 "Everything else" means the server, the HTTP layer, the persistence layer, the
-web frontend, the tooling, and the documentation.
+web frontend, the tooling, and the documentation. It does **not** extend to the
+name or the marks, which no licence here grants.
 
 The Country Pack *specification* is the schema and the format — what a pack
 must look like for Nusa to load it. The packs distributed in this repository,
@@ -46,6 +51,77 @@ offering Nusa as a service has to offer its source too.
 
 The two goals do not conflict: the reusable engine is reusable, and the product
 stays open to the people running it.
+
+## The name and the marks are not licensed
+
+**The two licences above cover code and documentation. They do not cover the
+name "Nusa" or the brand assets, and neither licence grants any right to
+either.**
+
+Excluded from both licences and reserved by the copyright holders:
+
+| What | Where |
+| --- | --- |
+| The product name **Nusa**, and the slug `nusa` used as an identifier | `internal/brand/brand.go` |
+| The wordmark | `.github/assets/logo.png` |
+| The lettermark | `web/src/assets/logo-letter.png` |
+| Any later variant, vector conversion or derivative of those marks | — |
+
+Nothing here restricts what the licences already permit for the code itself.
+You may run Nusa, modify it, and distribute your modifications on the AGPL's
+terms, or lift `internal/ledger` under MIT. **You may not present the result as
+Nusa.**
+
+### What a fork must do
+
+If you distribute a modified version, or run one as a network service:
+
+1. **Change the name.** Pick your own; do not use "Nusa" as the product name, in
+   the interface, in the repository name, in a package or image name, or in a
+   domain.
+2. **Replace the marks.** Remove the files listed above and use your own.
+3. **Say what it is derived from, factually.** "Based on Nusa" or "a fork of
+   Nusa" is accurate, welcome, and is not a use of the name as your own. What
+   is not permitted is anything that presents your build as Nusa itself, or as
+   endorsed by or affiliated with it.
+
+None of this is unusual, and none of it is aimed at making forking harder. The
+code is the part that is meant to be reused; the name is the part that tells
+somebody which project they are actually running, and a name that can mean two
+different builds tells them nothing.
+
+### Why this is written down now, while it is cheap
+
+Because the alternative is writing it later, which is expensive and awkward.
+Maybe, a comparable open-source personal finance project, had to introduce a
+restriction on the use of its name after forks were already carrying it — at
+which point the request lands on people who did nothing wrong under the terms
+they were given, and the project looks as though it is closing something it had
+left open.
+
+Stating it before there is a single fork costs one section in a file nobody has
+to argue about. Stating it afterwards costs goodwill that was not necessary to
+spend.
+
+**Brand assets are also specified in `DESIGN.md` under Brand assets** — minimum
+sizes, clear space, which surfaces they may appear on, and what may never be
+done to them. That is a design constraint on *our* use of them, and is separate
+from this licence exclusion; a fork replacing the marks is not bound by it,
+because the marks are not theirs to be bound about.
+
+### Making the boundary easy to honour
+
+The name is deliberately confined so that renaming is a small change rather
+than a search across the tree. `internal/brand/brand.go` is the only place in
+Go source that spells it out, and the message catalogues under `web/src/i18n`
+are the only other place it appears in shipped code — every user-facing string
+goes through i18n rather than hardcoding it. The `NUSA_` environment prefix is
+the one deliberate exception, because a variable name cannot be resolved at
+runtime; a rename updates it there and in `.env.example`.
+
+The module path `github.com/GaffaQ/Nusa` is a separate matter again. It tracks
+where the source lives, not what the product is called, and a fork changes it
+because the repository moved rather than because the name did.
 
 ## Per-file identification
 

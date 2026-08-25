@@ -446,6 +446,161 @@ a 16px glyph fills in its own counters and reads as a smudge.
 
 ---
 
+## Brand assets
+
+The logo is the most prominent visual element in the product, so it is
+specified here for the same reason every colour and radius is: one authority.
+An asset that enters the interface without a rule in this document opens a
+second route for visual decisions, and the two routes disagree within a
+release.
+
+Brand assets are also the one part of this document that is **not** covered by
+the code licence. See `LICENSING.md`: the code is AGPL-3.0-only and MIT, the
+name and these marks are not.
+
+### The assets
+
+| Asset | File | Intrinsic size | Use |
+| --- | --- | --- | --- |
+| Wordmark | `.github/assets/logo.png` | 1024 × 414 (2.473 : 1) | README, repository social preview, documentation headers |
+| Lettermark | `web/src/assets/logo-letter.png` | 889 × 1024 (0.868 : 1) | Application chrome — navigation, sign-in, empty states, favicon source |
+
+Both are RGBA with genuine transparency: the interior is transparent and the
+mark carries its own outer frame. Neither has padding beyond that frame, so
+clear space must be applied by whatever places them.
+
+### Minimum sizes
+
+Below these the letterforms lose their counters and the mark reads as a smudge,
+which is the same reasoning that puts a 1.5px stroke on a 16px icon.
+
+| Asset | Minimum | Maximum in a README | Retina headroom at the minimum |
+| --- | --- | --- | --- |
+| Wordmark | **160px wide** | 400px wide | 6.4× |
+| Lettermark | **24px tall** | — | 42× |
+
+Both files clear 2× at every size named above by a wide margin. Anything
+rendered above **512px wide** (wordmark) or **512px tall** (lettermark) is past
+2× of the intrinsic file and will soften; use the vector once it exists rather
+than upscaling.
+
+### Clear space
+
+**25% of the asset's rendered height, on all four sides, measured outside the
+frame the asset already carries.** A 32px lettermark therefore reserves 8px of
+empty space around it.
+
+Nothing enters that space — no text, no border, no adjacent control, no edge of
+a container. The clear space is not padding that a tight layout may borrow.
+
+### Surfaces, and the variant question
+
+**This is unresolved, and the current assets do not satisfy it.**
+
+§8.2 of `CLAUDE.md` sets 3:1 for "icons and marks that carry meaning", and a
+logo is the clearest case of one. Measured against every surface Nusa ships,
+using the extremes of the mark's own gradient:
+
+| Surface | Darkest ink `#FF46FF` | Lightest ink `#FFC3FF` | Verdict |
+| --- | --- | --- | --- |
+| `--surface-default` `#ffffff` | 2.77 : 1 | **1.45 : 1** | fails |
+| `--surface-base` `#f8fafc` | 2.65 : 1 | **1.38 : 1** | fails |
+| `--surface-sunken` `#f1f5f9` | 2.53 : 1 | **1.32 : 1** | fails |
+| `--surface-inverse` `#0f172a` | 6.44 : 1 | 12.33 : 1 | passes |
+
+The marks are legible only on the inverse surface, which is a button fill
+rather than a page background. On the three light surfaces that are the entire
+shipped palette, the mark fades out from its own gradient downward.
+
+The saturated magenta is also in direct tension with Do's and Don'ts item 4 —
+*don't introduce harsh neons or saturated accent colours* — and appears nowhere
+in the palette in §Colors.
+
+Two resolutions, and this document must record which was chosen:
+
+1. **Recolour the mark** so its lightest value clears 3:1 against `#ffffff`,
+   `#f8fafc` and `#f1f5f9`. On white that means a relative luminance at or
+   below roughly 0.29 — in practice a mark drawn from the existing palette
+   rather than beside it. One asset, every surface, no variants.
+2. **Keep the magenta and ship two variants**, with the current light-ink mark
+   used *only* on `--surface-inverse` or another dark plate, and a dark-ink
+   variant for the three light surfaces. Two files to keep in step, and every
+   placement then has to know which surface it is on.
+
+Until one is chosen, the two marks are treated differently, and the line
+between them is where §8.2 actually binds:
+
+- **The wordmark is in the README masthead.** That is brand presentation on
+  GitHub's surface rather than a control on one of ours, it sits beside the
+  name in text, and it is one line to change. The mark is legible there — the
+  saturated top of each letter carries at 2.77:1 — it is simply washed out
+  toward the bottom of its gradient.
+- **The lettermark is not placed in the application.** Application chrome is an
+  interface element on Nusa's own specified surfaces, which is exactly where
+  the 3:1 floor applies without argument. Nothing imports it yet.
+
+> **A note on the standard applied.** WCAG exempts logotypes from contrast
+> requirements, so the floor above is stricter than the letter of 1.4.11, and
+> §8.2 states its threshold without a logotype carve-out. Being exact about
+> what was measured: the mark is not invisible on white. The darkest part of
+> its gradient reads at 2.77:1 and the lightest at 1.45:1, so the top of each
+> letterform carries and the bottom fades away. That is a mark being washed
+> out, not a mark being absent — and it is still under the floor.
+
+### Not covered by any automated guard
+
+`npm run test:contrast` recomputes pairings from `tokens.css`, and
+`npm run lint:tokens` scans `.ts`, `.tsx`, `.css`, `.html` and `.js` under
+`src`. Neither reads an image. **The table above was measured by hand and will
+not be rechecked by CI**, so a change to a brand asset is a change nothing
+verifies — re-measure it here when an asset is replaced.
+
+### Format: PNG is interim, SVG is preferred
+
+Both marks are PNG today, and both should become SVG.
+
+The reason is not file size. A vector removes the minimum-size table's
+headroom column entirely, because there is no intrinsic resolution to run out
+of, and it removes the variant problem in the ordinary case: a mark drawn with
+`fill="currentColor"` takes its colour from the surface it sits on, so light
+and dark stop being two files that can drift apart. It also survives the
+favicon and PWA icon sizes, which a 889 × 1024 raster cannot supply as a square
+without either padding or distortion.
+
+Until then the PNGs are the source of truth, are marked `binary` in
+`.gitattributes` so end-of-line normalisation never touches them, and are
+committed as the exact bytes exported.
+
+### Never
+
+- **Never stretch or squash.** Both marks scale on one axis only if the other
+  follows. Their aspect ratios are 2.473 : 1 and 0.868 : 1.
+- **Never recolour** a mark in CSS, in a filter, or by editing the file, other
+  than through the variant decision recorded above.
+- **Never apply effects** — no drop shadow, no glow, no outline, no gradient
+  overlay, no blend mode. The elevation system does not reach the logo.
+- **Never rotate, skew or mirror.** The lettermark is not mirrored under RTL:
+  §Icons mirrors directional glyphs, and a brand mark is not directional.
+- **Never place a mark on a photograph, a gradient, or any translucent surface
+  whose backdrop can change** — the same rule §8.2 applies to text, for the
+  same reason: contrast that depends on what happens to be behind it cannot be
+  verified once.
+- **Never redraw, re-space or re-letter** the mark to fit a layout. Change the
+  layout.
+- **Never use the wordmark where the lettermark belongs**, or the reverse. The
+  wordmark carries the name; the lettermark stands in for it where the name is
+  already present or where the space is square.
+
+### The name is a separate thing from the mark
+
+Nothing here licenses the product name to appear in the interface as an image.
+Every user-facing string goes through i18n (§9 of `CLAUDE.md`), and a wordmark
+is not a substitute for a text label: anywhere the wordmark appears it carries
+a meaningful `alt`, and anywhere the name must be *read* — a page title, a
+heading, a screen reader, a terminal — it is text.
+
+---
+
 ## Components
 
 Every interactive component below satisfies the control-identification rule:
