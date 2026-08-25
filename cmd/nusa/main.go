@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/GaffaQ/Nusa/internal/api"
+	"github.com/GaffaQ/Nusa/internal/auth"
 	"github.com/GaffaQ/Nusa/internal/brand"
 	"github.com/GaffaQ/Nusa/internal/config"
 	"github.com/GaffaQ/Nusa/internal/store"
@@ -148,6 +149,26 @@ func serve(cfg *config.Config, logger *slog.Logger) error {
 	}
 	defer db.Close()
 
+	hasher, err := auth.NewHasher(cfg.PasswordHashing)
+	if err != nil {
+		// Unreachable through Load, which validates the same parameters. It is
+		// checked anyway because the alternative is a nil-costed hasher and a
+		// credential store nothing can verify.
+		return fmt.Errorf("password hashing parameters: %w", err)
+	}
+	limiter, err := auth.NewLimiter(cfg.LoginFailureLimit, cfg.LoginFailureWindow)
+	if err != nil {
+		return fmt.Errorf("login rate limiter: %w", err)
+	}
+
+	if len(cfg.TrustedProxies) == 0 {
+		logger.Info("no trusted proxies configured; forwarding headers are ignored " +
+			"and every request is attributed to the address it arrives from")
+	} else {
+		logger.Info("trusting forwarding headers from configured proxies only",
+			slog.Int("networks", len(cfg.TrustedProxies)))
+	}
+
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
 		Handler: api.NewRouter(api.Deps{
@@ -155,6 +176,22 @@ func serve(cfg *config.Config, logger *slog.Logger) error {
 			Database:      db,
 			HealthTimeout: cfg.HealthTimeout,
 			WebDir:        cfg.WebDir,
+			Auth: &api.AuthDeps{
+				Credentials:   db,
+				Sessions:      db,
+				SecondFactors: db,
+				Events:        db,
+				Hasher:        hasher,
+				Authenticator: auth.DefaultAuthenticator(),
+				Limiter:       limiter,
+
+				TrustedProxies: cfg.TrustedProxies,
+				SessionTTL:     cfg.SessionTTL,
+				SecureCookies:  cfg.SecureCookies(),
+
+				Now:   time.Now,
+				NewID: api.NewUUIDv7,
+			},
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+package api
+
+import (
+	"log/slog"
+	"net/http"
+)
+
+// Structured errors, as §5 of the M2 prompt requires: a stable code, a
+// developer-facing message, an optional field, and optional details.
+//
+// The code is the part that matters and the part that must not churn. It is
+// what a client translates, so it is a stable identifier rather than English:
+// the message beside it is for a developer reading a log, never for a person
+// reading a screen. §7 is explicit that no user-facing string is produced
+// here — the frontend renders `code` through its own catalogue.
+
+// ErrorCode identifies a failure in a way a client can act on.
+type ErrorCode string
+
+// The codes this layer produces. Every one is stable; adding is cheap and
+// renaming is a breaking change.
+const (
+	// CodeInvalidRequest is a malformed or unreadable request body.
+	CodeInvalidRequest ErrorCode = "invalid_request"
+
+	// CodeInvalidCredentials covers every way a sign-in can fail on the
+	// credential itself.
+	//
+	// It is deliberately one code for several causes: no such account, wrong
+	// password, wrong one-time code, spent backup code. Distinguishing them
+	// would tell an anonymous caller which addresses are registered, which is
+	// exactly the enumeration the whole login path is arranged to prevent.
+	CodeInvalidCredentials ErrorCode = "invalid_credentials" //nolint:gosec // G101: an error code, not a credential
+
+	// CodeSecondFactorRequired reports a session that has passed the password
+	// step and has not yet passed the second one. It is not an error in the
+	// ordinary sense: it names the next step.
+	CodeSecondFactorRequired ErrorCode = "second_factor_required"
+
+	// CodeUnauthenticated reports a request with no usable session.
+	CodeUnauthenticated ErrorCode = "unauthenticated"
+
+	// CodeRateLimited reports too many failed sign-in attempts from one
+	// address.
+	CodeRateLimited ErrorCode = "rate_limited"
+
+	// CodeRegistrationUnavailable reports a registration that will not be
+	// accepted.
+	//
+	// One code for two causes, for the same reason as CodeInvalidCredentials:
+	// "registration is closed" tells an anonymous caller that somebody is
+	// already using this instance, and "that address is taken" tells them who.
+	// Both are the same shape of leak as account enumeration, and both answer
+	// with this.
+	CodeRegistrationUnavailable ErrorCode = "registration_unavailable"
+
+	// CodeInternal reports a fault on this side. The response carries nothing
+	// about it; the log carries everything.
+	CodeInternal ErrorCode = "internal"
+)
+
+// errorBody is the shape every failure crosses the wire in.
+type errorBody struct {
+	Error errorDetail `json:"error"`
+}
+
+type errorDetail struct {
+	Code    ErrorCode `json:"code"`
+	Message string    `json:"message"`
+	Field   string    `json:"field,omitempty"`
+
+	// Details carries whatever a client needs to act, such as how long to wait
+	// before retrying. Never anything that distinguishes one failure cause
+	// from another where the code deliberately does not.
+	Details map[string]string `json:"details,omitempty"`
+}
+
+// writeError sends a structured failure.
+func writeError(w http.ResponseWriter, logger *slog.Logger, status int, code ErrorCode, message string) {
+	writeErrorDetail(w, logger, status, errorDetail{Code: code, Message: message})
+}
+
+func writeErrorDetail(w http.ResponseWriter, logger *slog.Logger, status int, detail errorDetail) {
+	writeJSON(w, logger, status, errorBody{Error: detail})
+}
+
+// writeInternalError logs the cause and tells the caller nothing about it.
+//
+// The split is the point. An error from the database routinely carries a
+// hostname, a username, a query, or a column name, and any of those in a
+// response body is a gift to whoever is probing. The caller learns that
+// something broke on this side; the operator learns what.
+func writeInternalError(w http.ResponseWriter, logger *slog.Logger, what string, err error) {
+	logger.Error(what, slog.String("error", err.Error()))
+	writeError(w, logger, http.StatusInternalServerError, CodeInternal, "internal error")
+}

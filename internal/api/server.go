@@ -29,6 +29,12 @@ type Deps struct {
 	// API-only — the normal state during frontend development, where Vite
 	// serves the app and proxies here.
 	WebDir string
+
+	// Auth carries everything the authentication endpoints need. When it is
+	// absent or incomplete those routes are not mounted at all, which is a
+	// louder failure than mounting them and dereferencing nil on somebody's
+	// first sign-in.
+	Auth *AuthDeps
 }
 
 // NewRouter assembles the HTTP handler.
@@ -44,6 +50,33 @@ func NewRouter(d Deps) http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", handleHealth(d))
+
+	if d.Auth.ready() {
+		r.Route("/api/v1/auth", func(r chi.Router) {
+			r.Post("/register", handleRegister(d))
+			r.Post("/login", handleLogin(d))
+
+			// The two routes a session awaiting its second factor may reach,
+			// and the only two. Both are wrapped in requireSession rather than
+			// requireAuthenticated, because a pending session is precisely the
+			// credential they act on.
+			r.Group(func(r chi.Router) {
+				r.Use(requireSession(d))
+				r.Post("/second-factor", handleSecondFactor(d))
+				r.Post("/logout", handleLogout(d))
+			})
+
+			// Everything else. requireAuthenticated refuses a pending session,
+			// so a cookie handed out at the password step cannot reach any of
+			// it without a code.
+			r.Group(func(r chi.Router) {
+				r.Use(requireAuthenticated(d))
+				r.Get("/session", handleCurrentSession(d))
+			})
+		})
+	} else {
+		d.Logger.Warn("authentication routes not mounted: dependencies incomplete")
+	}
 
 	if static, ok := staticHandler(d.WebDir); ok {
 		r.NotFound(static)
