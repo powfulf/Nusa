@@ -85,7 +85,8 @@ func open(t *testing.T) *store.Store {
 	t.Cleanup(s.Close)
 
 	_, err = s.Pool().Exec(ctx,
-		`TRUNCATE audit_log, idempotency_keys, lot_consumptions, lots, postings, transactions, accounts, users`)
+		`TRUNCATE audit_log, idempotency_keys, lot_consumptions, lots, postings, transactions, accounts,
+		          sessions, user_totp, user_backup_codes, users`)
 	require.NoError(t, err, "reset tables")
 
 	return s
