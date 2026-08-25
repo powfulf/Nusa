@@ -31,13 +31,32 @@ type Querier interface {
 	// An expired claim is taken over rather than left to block forever, which is
 	// what makes the TTL mean something for correctness and not just for the
 	// sweeper.
-	ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (IdempotencyKey, error)
+	ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (ClaimIdempotencyKeyRow, error)
+	ConfirmTOTP(ctx context.Context, arg ConfirmTOTPParams) (int64, error)
 	CountAuditEntries(ctx context.Context) (int64, error)
+	// Whether this instance has anybody yet. Used to decide what a registration
+	// form should offer, never to decide whether a registration may proceed —
+	// that answer would be stale the moment it was read.
+	CountCredentialedUsers(ctx context.Context) (int64, error)
 	CountTransactions(ctx context.Context) (int64, error)
+	CountUnusedBackupCodes(ctx context.Context, userID pgtype.UUID) (int64, error)
+	// Issuing a new set replaces the old one outright, spent codes included. A
+	// code from a previous set must not survive a regeneration: the person asked
+	// for a clean slate, usually because they think the old list leaked.
+	DeleteBackupCodes(ctx context.Context, userID pgtype.UUID) (int64, error)
 	DeleteExpiredIdempotencyKeys(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error)
+	// Sweeping. A revoked session is kept until it would have expired anyway, so
+	// that "this session was revoked" remains answerable for as long as anyone
+	// might ask.
+	DeleteExpiredSessions(ctx context.Context, expiresAt pgtype.Timestamptz) (int64, error)
+	DeleteTOTP(ctx context.Context, userID pgtype.UUID) (int64, error)
 	GetAccount(ctx context.Context, id pgtype.UUID) (Account, error)
 	GetCommodity(ctx context.Context, code string) (Commodity, error)
-	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error)
+	// Case-insensitive, matching the users_email_key index expression exactly so
+	// the lookup uses it rather than scanning.
+	GetCredentialsByEmail(ctx context.Context, email string) (GetCredentialsByEmailRow, error)
+	GetCredentialsByID(ctx context.Context, id pgtype.UUID) (GetCredentialsByIDRow, error)
+	GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (GetIdempotencyKeyRow, error)
 	GetLot(ctx context.Context, id pgtype.UUID) (Lot, error)
 	// Widens a posting back to its transaction, which is how a lot recovers the
 	// transaction that opened it.
@@ -45,14 +64,57 @@ type Querier interface {
 	// Reads the schema generation. Doubles as the health endpoint's proof that the
 	// connection works and that migrations have been applied.
 	GetSchemaVersion(ctx context.Context) (int32, error)
+	// The lookup on every authenticated request.
+	//
+	// The row comes back whatever its state, and the repository decides. Three
+	// things end a session — expiry, revocation, and a password changed since it
+	// began — and they are one answer to whoever holds the cookie, so they are
+	// resolved in one place rather than by every caller remembering all three.
+	//
+	// Awaiting a second factor is not one of them. Such a session is returned, and
+	// must be: it is the credential the second step itself presents, and refusing
+	// it here would make completing two-factor authentication impossible.
+	//
+	// password_changed_at is joined in rather than looked up separately so the
+	// decision is made from one consistent read.
+	GetSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetSessionByTokenHashRow, error)
+	GetTOTP(ctx context.Context, userID pgtype.UUID) (UserTotp, error)
+	// The same reading, taking a row lock.
+	//
+	// Verifying a code is read-decide-write: read the highest counter already
+	// spent, check the code against the accepted window, write the counter it
+	// matched. Two submissions of the same code running at once would otherwise
+	// both read the old counter, both find the code unspent, and both succeed —
+	// which is exactly the replay the counter exists to prevent, arriving through
+	// the door left open by not holding the row. The lock makes the second one
+	// wait, re-read, and correctly refuse.
+	GetTOTPForUpdate(ctx context.Context, userID pgtype.UUID) (UserTotp, error)
 	GetTransaction(ctx context.Context, id pgtype.UUID) (Transaction, error)
 	InsertAccount(ctx context.Context, arg InsertAccountParams) error
 	InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error
+	// ---------------------------------------------------------------------------
+	// Backup codes
+	// ---------------------------------------------------------------------------
+	InsertBackupCode(ctx context.Context, arg InsertBackupCodeParams) error
+	// Credentials, sessions and second factors.
+	// Registers a person.
+	//
+	// Whether registration is open is not asked here, and deliberately so. The
+	// users_at_most_one_credentialed index makes a second credentialed row
+	// impossible, so a concurrent pair of registrations against an empty instance
+	// resolves in the database rather than in a check the caller could forget or
+	// race. The second inserter blocks on the uncommitted index entry until the
+	// first transaction resolves, then fails with a unique violation.
+	InsertCredentialedUser(ctx context.Context, arg InsertCredentialedUserParams) error
 	InsertLot(ctx context.Context, arg InsertLotParams) error
 	// One lot's part in one disposing line. Section 4.7: the basis is an exact
 	// fraction, never rounded on the way in.
 	InsertLotConsumption(ctx context.Context, arg InsertLotConsumptionParams) error
 	InsertPosting(ctx context.Context, arg InsertPostingParams) error
+	// ---------------------------------------------------------------------------
+	// Sessions
+	// ---------------------------------------------------------------------------
+	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) error
 	InsertUser(ctx context.Context, id pgtype.UUID) error
 	ListAccountSubtree(ctx context.Context, id pgtype.UUID) ([]pgtype.UUID, error)
@@ -92,22 +154,99 @@ type Querier interface {
 	// Civil dates, both counted. Only txn_date decides; occurred_at is never
 	// consulted, so the answer is the same for every reader in every zone.
 	ListTransactionsBetween(ctx context.Context, arg ListTransactionsBetweenParams) ([]Transaction, error)
+	// The candidates a submitted code is matched against.
+	//
+	// No FOR UPDATE here, unlike the TOTP enrolment, and the difference is worth
+	// being exact about because the two problems look identical and are not.
+	//
+	// TOTP writes an unconditional `SET last_used_counter = $2`, so nothing in the
+	// statement itself can tell that another transaction already advanced it. The
+	// lock is what serialises those, and removing it lets two submissions of one
+	// code both succeed — established by removing it and watching the concurrency
+	// test go red.
+	//
+	// Spending a backup code is naturally conditional instead: the row must still
+	// be unspent, which MarkBackupCodeUsed states in its own WHERE. Under READ
+	// COMMITTED the second UPDATE blocks on the first one's row lock, re-evaluates
+	// its condition against the committed version, and matches nothing. A lock
+	// taken here would add no guarantee — established the same way, by removing it
+	// and watching the concurrency test stay green, which is why it is not here.
+	// Do not add one back believing it protects something.
+	//
+	// The `used_at IS NULL` filter is likewise not what makes a code single use; a
+	// spent code that reached the matcher would still fail at the UPDATE. It is
+	// here because it is the correct question and because it uses the partial
+	// index. ORDER BY makes the result deterministic for the same reason every
+	// other list in this file is ordered.
+	ListUnusedBackupCodeHashes(ctx context.Context, userID pgtype.UUID) ([]string, error)
+	ListUserSessions(ctx context.Context, userID pgtype.UUID) ([]Session, error)
+	// This is the whole of the single-use guarantee.
+	//
+	// `used_at IS NULL` is not a defensive extra: it is the only thing standing
+	// between one code and two uses of it. Two submissions racing here both reach
+	// this statement, one updates a row and the other updates nothing. Remove the
+	// clause and a backup code becomes reusable, which the concurrency test says
+	// immediately.
+	MarkBackupCodeUsed(ctx context.Context, arg MarkBackupCodeUsedParams) (int64, error)
+	// Stores what the first attempt answered, so a replay can repeat it.
+	//
+	// Status and body are written together because the constraint refuses half a
+	// response: a replay that had to invent a missing status would be answering a
+	// question the original never asked.
+	RecordIdempotentResponse(ctx context.Context, arg RecordIdempotentResponseParams) (int64, error)
+	// Withdrawn, never deleted: see the column comment on sessions.revoked_at.
+	//
+	// COALESCE rather than a `revoked_at IS NULL` clause, so that the row count
+	// means one thing only. Filtering on it in the WHERE would make an
+	// already-revoked session and a session that never existed both report zero
+	// rows, and revoking twice would then be indistinguishable from revoking
+	// nothing. Written this way the update is idempotent, the first revocation
+	// time survives a second attempt, and zero rows means exactly what it says.
+	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
+	// Everything belonging to one person, optionally sparing one — which is what
+	// "change my password and sign out my other devices" needs.
+	RevokeUserSessions(ctx context.Context, arg RevokeUserSessionsParams) (int64, error)
+	// Replaces the token on a session and marks the second factor satisfied.
+	//
+	// The token changes because the privilege does. A session that is handed a
+	// cookie before authentication and keeps the same cookie afterwards is a
+	// session fixation: anything that learned the pre-authentication token holds a
+	// fully authenticated one the moment the person completes their second step.
+	//
+	// The WHERE clause refuses to elevate a session twice, so a replayed
+	// completion cannot mint a second live token for the same row.
+	RotateSessionToken(ctx context.Context, arg RotateSessionTokenParams) (int64, error)
 	// A lot's remaining quantity is a running position rather than a record of an
 	// event, so it moves. What moved it is not lost: every movement appends a row
 	// to lot_consumptions, and summing those reconstructs this figure from scratch.
 	// The same relationship section 5.2 describes between a cached balance and the
 	// postings it comes from.
 	SetLotRemaining(ctx context.Context, arg SetLotRemainingParams) error
+	SetTOTPCounter(ctx context.Context, arg SetTOTPCounterParams) error
 	SubtreeBalanceAsOf(ctx context.Context, arg SubtreeBalanceAsOfParams) ([]SubtreeBalanceAsOfRow, error)
 	// The whole-book form of 5.1. It must always be zero: each transaction sums to
 	// zero on its own, so any number of them still do. A non-zero total means
 	// something got in without passing NewTransaction.
 	TotalsByCommodity(ctx context.Context) ([]TotalsByCommodityRow, error)
+	// Records that a session was used. Separate from the lookup because a read
+	// should not have to be a write: the caller decides how often this is worth
+	// doing, and an idle-timeout policy is what will decide it.
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) (int64, error)
 	// Country Packs register their own securities and funds. A redefinition that
 	// disagrees with what is already stored is refused rather than silently
 	// applied: a commodity whose scale changes underneath stored amounts would
 	// move every decimal point already written.
 	UpsertCommodity(ctx context.Context, arg UpsertCommodityParams) error
+	// ---------------------------------------------------------------------------
+	// TOTP
+	// ---------------------------------------------------------------------------
+	// Begins enrolment, replacing any unfinished one.
+	//
+	// Re-enrolling resets the counter to zero, and that is safe precisely because
+	// the secret is new: a counter only guards against a code being reused against
+	// the secret it was generated from, and no code exists yet for this one.
+	UpsertTOTPEnrolment(ctx context.Context, arg UpsertTOTPEnrolmentParams) error
 }
 
 var _ Querier = (*Queries)(nil)

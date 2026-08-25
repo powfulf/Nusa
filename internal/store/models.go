@@ -46,9 +46,12 @@ type IdempotencyKey struct {
 	Fingerprint []byte
 	EntityKind  string
 	EntityID    pgtype.UUID
-	Response    []byte
-	CreatedAt   pgtype.Timestamptz
-	ExpiresAt   pgtype.Timestamptz
+	// The document the first attempt answered with. Renamed from "response" in migration 9, when the status was split out.
+	ResponseBody []byte
+	CreatedAt    pgtype.Timestamptz
+	ExpiresAt    pgtype.Timestamptz
+	// The HTTP status the first attempt answered with. Not derivable from the body, so it is stored.
+	ResponseStatus *int16
 }
 
 // One acquisition of an asset, with what it cost. FIFO ordering is (opened_on, id).
@@ -105,6 +108,18 @@ type SchemaMetum struct {
 	AppliedAt pgtype.Timestamptz
 }
 
+// Server-side sessions. The cookie carries a random token; this table stores only its SHA-256.
+type Session struct {
+	ID              pgtype.UUID
+	UserID          pgtype.UUID
+	TokenHash       []byte
+	CreatedAt       pgtype.Timestamptz
+	LastSeenAt      pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	AuthenticatedAt pgtype.Timestamptz
+	RevokedAt       pgtype.Timestamptz
+}
+
 // A set of postings that together move value without creating or destroying any.
 type Transaction struct {
 	ID         pgtype.UUID
@@ -123,4 +138,27 @@ type Transaction struct {
 type User struct {
 	ID        pgtype.UUID
 	CreatedAt pgtype.Timestamptz
+	// Login identity, stored as typed. Uniqueness is case-insensitive; see users_email_key.
+	Email *string
+	// A PHC-format Argon2id string. The cost parameters travel inside it, so raising them does not invalidate existing credentials.
+	PasswordHash *string
+	// When the password was last set. Sessions created before it are no longer trusted.
+	PasswordChangedAt pgtype.Timestamptz
+}
+
+// Single-use recovery codes, stored as SHA-256 hex. A spent code keeps its row so it can be reported.
+type UserBackupCode struct {
+	UserID    pgtype.UUID
+	CodeHash  string
+	CreatedAt pgtype.Timestamptz
+	UsedAt    pgtype.Timestamptz
+}
+
+// One TOTP enrolment per user. Unconfirmed rows are enrolments in progress, not active second factors.
+type UserTotp struct {
+	UserID          pgtype.UUID
+	Secret          []byte
+	ConfirmedAt     pgtype.Timestamptz
+	LastUsedCounter int64
+	CreatedAt       pgtype.Timestamptz
 }

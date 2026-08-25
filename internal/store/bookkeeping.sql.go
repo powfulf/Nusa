@@ -16,14 +16,19 @@ INSERT INTO idempotency_keys (
     actor_id, key, fingerprint, entity_kind, entity_id, created_at, expires_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (actor_id, key) DO UPDATE
-    SET fingerprint = excluded.fingerprint,
-        entity_kind = excluded.entity_kind,
-        entity_id   = excluded.entity_id,
-        response    = NULL,
-        created_at  = excluded.created_at,
-        expires_at  = excluded.expires_at
+    SET fingerprint     = excluded.fingerprint,
+        entity_kind     = excluded.entity_kind,
+        entity_id       = excluded.entity_id,
+        -- An expired claim being taken over must not keep the previous
+        -- attempt's answer: the work is about to be done again, and a
+        -- stale body paired with a fresh entity id would replay a
+        -- response describing something that no longer exists.
+        response_body   = NULL,
+        response_status = NULL,
+        created_at      = excluded.created_at,
+        expires_at      = excluded.expires_at
   WHERE idempotency_keys.expires_at <= excluded.created_at
-RETURNING actor_id, key, fingerprint, entity_kind, entity_id, response, created_at, expires_at
+RETURNING actor_id, key, fingerprint, entity_kind, entity_id, response_status, response_body, created_at, expires_at
 `
 
 type ClaimIdempotencyKeyParams struct {
@@ -36,6 +41,18 @@ type ClaimIdempotencyKeyParams struct {
 	ExpiresAt   pgtype.Timestamptz
 }
 
+type ClaimIdempotencyKeyRow struct {
+	ActorID        pgtype.UUID
+	Key            string
+	Fingerprint    []byte
+	EntityKind     string
+	EntityID       pgtype.UUID
+	ResponseStatus *int16
+	ResponseBody   []byte
+	CreatedAt      pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+}
+
 // Claims a key, or reports that someone already holds a live one.
 //
 // No row comes back when the key is held and has not expired, which is the
@@ -46,7 +63,7 @@ type ClaimIdempotencyKeyParams struct {
 // An expired claim is taken over rather than left to block forever, which is
 // what makes the TTL mean something for correctness and not just for the
 // sweeper.
-func (q *Queries) ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (IdempotencyKey, error) {
+func (q *Queries) ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyKeyParams) (ClaimIdempotencyKeyRow, error) {
 	row := q.db.QueryRow(ctx, claimIdempotencyKey,
 		arg.ActorID,
 		arg.Key,
@@ -56,14 +73,15 @@ func (q *Queries) ClaimIdempotencyKey(ctx context.Context, arg ClaimIdempotencyK
 		arg.CreatedAt,
 		arg.ExpiresAt,
 	)
-	var i IdempotencyKey
+	var i ClaimIdempotencyKeyRow
 	err := row.Scan(
 		&i.ActorID,
 		&i.Key,
 		&i.Fingerprint,
 		&i.EntityKind,
 		&i.EntityID,
-		&i.Response,
+		&i.ResponseStatus,
+		&i.ResponseBody,
 		&i.CreatedAt,
 		&i.ExpiresAt,
 	)
@@ -94,7 +112,7 @@ func (q *Queries) DeleteExpiredIdempotencyKeys(ctx context.Context, expiresAt pg
 }
 
 const getIdempotencyKey = `-- name: GetIdempotencyKey :one
-SELECT actor_id, key, fingerprint, entity_kind, entity_id, response, created_at, expires_at
+SELECT actor_id, key, fingerprint, entity_kind, entity_id, response_status, response_body, created_at, expires_at
   FROM idempotency_keys
  WHERE actor_id = $1 AND key = $2
 `
@@ -104,16 +122,29 @@ type GetIdempotencyKeyParams struct {
 	Key     string
 }
 
-func (q *Queries) GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (IdempotencyKey, error) {
+type GetIdempotencyKeyRow struct {
+	ActorID        pgtype.UUID
+	Key            string
+	Fingerprint    []byte
+	EntityKind     string
+	EntityID       pgtype.UUID
+	ResponseStatus *int16
+	ResponseBody   []byte
+	CreatedAt      pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+}
+
+func (q *Queries) GetIdempotencyKey(ctx context.Context, arg GetIdempotencyKeyParams) (GetIdempotencyKeyRow, error) {
 	row := q.db.QueryRow(ctx, getIdempotencyKey, arg.ActorID, arg.Key)
-	var i IdempotencyKey
+	var i GetIdempotencyKeyRow
 	err := row.Scan(
 		&i.ActorID,
 		&i.Key,
 		&i.Fingerprint,
 		&i.EntityKind,
 		&i.EntityID,
-		&i.Response,
+		&i.ResponseStatus,
+		&i.ResponseBody,
 		&i.CreatedAt,
 		&i.ExpiresAt,
 	)
@@ -473,6 +504,37 @@ func (q *Queries) ListOpenLotsByAccountForUpdate(ctx context.Context, accountID 
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordIdempotentResponse = `-- name: RecordIdempotentResponse :execrows
+UPDATE idempotency_keys
+   SET response_status = $3, response_body = $4
+ WHERE actor_id = $1 AND key = $2
+`
+
+type RecordIdempotentResponseParams struct {
+	ActorID        pgtype.UUID
+	Key            string
+	ResponseStatus *int16
+	ResponseBody   []byte
+}
+
+// Stores what the first attempt answered, so a replay can repeat it.
+//
+// Status and body are written together because the constraint refuses half a
+// response: a replay that had to invent a missing status would be answering a
+// question the original never asked.
+func (q *Queries) RecordIdempotentResponse(ctx context.Context, arg RecordIdempotentResponseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, recordIdempotentResponse,
+		arg.ActorID,
+		arg.Key,
+		arg.ResponseStatus,
+		arg.ResponseBody,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setLotRemaining = `-- name: SetLotRemaining :exec
