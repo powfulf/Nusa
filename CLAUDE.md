@@ -169,8 +169,8 @@ Nusa's users are not accountants. Most have never heard of double-entry bookkeep
 
 **`DESIGN.md` at the repository root is the single authority for how Nusa
 looks.** Every colour, typeface, type step, spacing step, radius, shadow,
-motion curve, icon and component specification originates there and nowhere
-else.
+motion curve, icon, brand asset and component specification originates there
+and nowhere else.
 
 No visual value appears in this file. If you are looking for a hex code, a
 pixel size or a font name, it is in `DESIGN.md`.
@@ -278,6 +278,12 @@ satisfied by editing the check.
 - Every bug fix starts with a failing test that reproduces it.
 - Coverage target: 85% in `internal/ledger`, 60% elsewhere. Coverage is a floor, not a goal.
 - **A guard is not installed until you have watched it fail.** Decide what it must cover *before* writing it, then break each item on that list in turn and confirm the failure. "The check passes" is not evidence the check works — a check that reads nothing also passes.
+- **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
+- **A guard must not borrow an external source's authority for something that source never said.** Published test vectors prove exactly what they cover and nothing adjacent to it; a check labelled as RFC-backed when the RFC is silent on the case is a false claim wearing a citation. Self-consistency checks are legitimate and often the only thing available — differential tests, round trips, invariants against a second implementation — but they are labelled as what they are, in the test, so nobody later mistakes them for proof from outside.
+- **A comparison check must prove both sides are non-empty before it compares them.** A diff of two empty sets is green, a `grep` over a file that never arrived matches nothing, and a suite whose cases are all rejected early reports success. Every one of those looks exactly like a pass. Assert the size of what you are about to compare — line counts, row counts, case counts — and fail if it is zero, so the check cannot succeed by reading nothing. This has now happened twice: a property suite that got twelve times faster because its generator's output was being discarded, and a schema comparison that produced an empty diff because the SQL never reached the container.
+- **A test that arranges the expected outcome by itself is testing nothing.** Ask what would happen if the function under test were deleted outright, not merely changed — if the assertion would still hold, the setup is producing the result and the subject is a passenger. The instance here: a check that a successful sign-in clears the rate-limit count first advanced the clock past the window, so the count had expired on its own and the test passed whether or not anything cleared it. Waiting out a timeout, seeding the answer, and asserting a default all fail this way, and all of them look like ordinary arrangement.
+- **Verification tooling is subject to the discipline it enforces.** A harness that applies a break, measures, and restores must restore *derived* artefacts as deliberately as it restores their sources: putting a `.sql` file back does not put the generated `.go` back, and the next measurement then runs against the previous break's code. The tool is not exempt from "watch it fail" merely because it is the thing doing the watching.
+- **"Flaky" is a symptom, never a diagnosis.** A failure that will not reproduce is a fact needing an explanation, not noise to be waved away as the environment. Chase it until the cause is named, or record it openly as unexplained — and never let a green re-run stand as the explanation. The one time this was tested here, the "flaky test" was the harness lying: a contaminated run had failed a test that had nothing to do with the break, and only a written prediction that the results contradicted exposed it.
 - **An assertion inside a property test is only as good as the generator feeding it.** Before trusting one, ask whether the generated data can even contain the thing being asserted about. Prove it by breaking the code that assertion covers and watching *that* test fail, not a neighbour.
 - **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
 - **A concurrency test that does not force the interleaving is a test of the scheduler's mood.** Arrange the collision — hold the contended rows from the test itself — rather than starting goroutines and hoping.
@@ -1226,3 +1232,723 @@ commands behind the targets, not the targets (the M0 rule).
 | A drift check that recomputes every lot's `remaining_amount` from `lot_consumptions` across the whole book. The per-lot reconstruction is tested; the book-wide sweep is not | M6 |
 | Why a subtree balance degrades faster than a single-account balance | M6 |
 | `fx_rates` | M6 |
+
+### M2b Phase 1 — Authentication
+
+Password hashing, TOTP and backup codes, then the schema and repositories
+behind them. `internal/ledger` stays frozen throughout: Phase 0 opened it once
+and closed it, and nothing in authentication reopens it.
+
+`internal/auth` is pure. It holds cryptography and policy, defines repository
+interfaces, and imports neither `database/sql` nor `net/http` nor
+`internal/config` nor `internal/store` — the same arrangement as
+`internal/ledger`, enforced by a second depguard list rather than by this
+paragraph. The reason is narrower than architectural tidiness: the only
+external evidence that the TOTP implementation is correct is RFC 6238's
+published vectors, and a crypto test that needs a container is a crypto test
+that eventually stops being run.
+
+#### Argon2id: the parameters, and the number they were derived from
+
+`m = 19456 KiB, t = 2, p = 1`, 16-byte salt, 32-byte tag, encoded as a PHC
+string so the cost travels with the hash.
+
+The binding constraint is not attacker cost, it is **concurrency × memory on
+the weakest host Nusa is meant to run on**. Sixteen simultaneous verifications
+at 19 MiB is about 304 MiB, which a 1 GiB machine absorbs. The next commonly
+cited figure, 64 MiB, is 1 GiB at that same concurrency and pushes such a host
+into swap — where a verification takes seconds and the machine stops serving
+anything at all. A password hash that a burst of logins converts into an outage
+has traded one security property for another.
+
+**The measurement, and it is the baseline any future change is compared
+against:**
+
+| | Median of 5 |
+| --- | --- |
+| Verification, this development desktop | **28,0 ms** |
+| Same, under `-race` | 35,2 ms |
+| Derived: Raspberry Pi 4, 5–8× slower at memory-bound work | **150–220 ms** |
+
+That derived figure is the target — the familiar couple of hundred
+milliseconds for an interactive login, on the machine that sets the floor — and
+it is why iterations are 2 rather than 3. Iterations are also the lever to
+reach for if the floor hardware ever moves, because they cost time without
+costing memory and so leave the concurrency arithmetic alone.
+
+The first draft justified `t = 2` with the words "already in the right range",
+which is not a justification. The number replaced it.
+
+#### Two findings, and the second one is a new shape of mistake
+
+**`Code` panicked on a zero period**, because it derived the counter before
+validating and `counterAt` divides by the period. §12 rules out panicking
+outside `main`.
+
+What is worth recording is not the bug but how it surfaced. The parameter table
+in `TestUnusableAuthenticatorParametersAreRefused` calls **every entry point**
+for each bad configuration — `Code`, `CodeAt`, `Validate`, `ProvisioningURI` —
+rather than one that seemed representative. Only `Code` had the ordering wrong;
+a table testing `CodeAt` alone would have passed, and the panic would have
+waited for a misconfigured deployment to find it.
+> **Rule.** When a rule is supposed to hold at several entry points, test it at
+> all of them. Picking a representative one tests the representative.
+
+**The second finding was not in the code. It was in a claim about a test.**
+
+A comment on RFC 6238's last vector said the row `t = 20000000000` "fails
+loudly for any implementation that narrows the counter". Narrowing the counter
+to `uint32` left all eighteen vectors green.
+
+20000000000 / 30 is 666.666.666, which is `0x27BC86AA` — and every other T in
+Appendix B is smaller. No published vector reaches a counter above 2^32. What
+the last row actually proves is that the *clock reading* survives past a 32-bit
+`time_t`, which is worth having and is not what the comment claimed.
+
+This is a failure mode the earlier rules do not catch. The guard worked. The
+break produced a failure. What was false was the sentence describing *which*
+break the guard would catch — and neither a green run nor a red one exposes
+that, because the red run looks like success either way.
+
+Fixed from both ends: the comment now states what the row proves, and
+`TestTheCounterIsCarriedAtFullWidth` closes the gap with a differential check
+over counters that agree in their low 32 bits. That test is labelled in its own
+doc comment as self-consistency rather than RFC-backed, because it is.
+> **Rules.** Both promoted to §11. Check that what failed is what you expected
+> to fail; and never let a guard borrow an external source's authority for
+> something that source never said.
+
+#### TOTP
+
+Written over `crypto/hmac` and `encoding/base32`. All eighteen Appendix B
+vectors pass, each checked twice — once from the clock through `Code` and once
+from the hexadecimal T the RFC publishes through `CodeAt` — so that a failure
+says whether the counter derivation or the HOTP construction is wrong.
+
+**The seed trap is asserted, not merely commented.** Appendix B's prose gives
+one secret, `12345678901234567890`, while the reference implementation in
+Appendix A runs SHA-256 and SHA-512 against 32- and 64-byte seeds of the same
+repeating digits. Using the short seed for all three produces three correct
+answers and twelve wrong ones, which reads exactly like a broken implementation
+and invites someone to "fix" working code.
+`TestTheShorterSeedDoesNotProduceTheSHA256Vectors` fails if that ever happens.
+
+**Clock skew is one period either side, and the reasoning is in the code.**
+Behind, because people read a code late in its window and type slowly, and
+refusing that login is not a security decision — it produces a retry, which is
+what the rate limiter counts. Ahead, because a self-hosted server's clock is
+less disciplined than a phone's. No wider, because the price is linear: six
+digits is a million codes, three windows makes three of them valid at any
+instant, and a skew of five makes eleven. A clock more than 45 seconds out is a
+broken host and the fix is NTP.
+
+The consequence is stated where it lands: at these settings one code is
+acceptable for 60 to 90 seconds, so `Validate` returns the counter it matched
+and the caller must record it. Replay prevention is not optional decoration on
+top of skew, it is what skew requires.
+
+#### Backup codes: SHA-256, and the arithmetic that makes that safe
+
+Passwords get Argon2id because they are *chosen*, and a chosen secret comes
+from a distribution an attacker can enumerate. A backup code is *drawn*, so
+there is no distribution and slowness buys nothing — while costing something
+real, since checking one code means comparing against every unspent code a user
+holds and Argon2id would make one submission ten memory-hard hashes.
+
+That argument only holds if the entropy is past brute force, so it was sized
+instead of asserted. At 10^10 SHA-256 per second: 40 bits is two minutes, 50
+bits is a day and a half, 64 bits is 58 years, **80 bits is 3,8 million years**.
+Ten random bytes, which is exactly sixteen base32 characters — four groups of
+four, short enough that somebody will write it down and type it back.
+
+The reasoning lives in `backupcode.go`, at the top, because "why two different
+hashes" is the first question anyone reading that file asks.
+
+#### One check was unfalsifiable, and was made falsifiable rather than deleted
+
+Removing the empty-code refusal from `MatchBackupCode` changed no test: an
+empty code hashes to something no stored code matches, so the outcome is the
+same with or without it. A check no test can distinguish from its own absence
+is a check nobody can tell is working.
+
+It was kept and given the one case that reaches it — a stored set containing
+`HashBackupCode("")`, which `NewBackupCodes` cannot produce but a corrupted or
+imported row could. Deleting the check now turns a test red.
+
+#### Schema: two migrations, and one reserved column that did not fit
+
+Migration 8 adds credentials to `users` by ALTER — the operation migration 2's
+own comment promised — plus `sessions`, `user_totp` and `user_backup_codes`.
+
+Migration 9 reshapes something M2a left behind. `idempotency_keys.response
+jsonb` was commented "reserved for M2b, which replays the original HTTP
+response body", and checked against what a replay actually has to reproduce, a
+body is not enough: **the status line is part of the response and is not
+derivable from the body.** A create that answered 201 replaying as 200 has not
+replayed, and neither has a 422 validation failure coming back 200 with the
+error document presented as a result. It is now `response_status smallint` and
+`response_body jsonb`, with a constraint refusing half of one.
+
+Nothing writes the column yet, so this was the last moment it was free. Doing
+it after the first deployment would have meant a backfill with a guessed
+status. Migration 6 was left exactly as written — migrations are forward-only,
+and editing an applied one is how two databases claiming the same version come
+to differ.
+
+No column was added for response headers. The only one a replay must reproduce
+is `Location` on a 201, and `entity_kind` and `entity_id` are already stored;
+the route for a kind is a fact about the API, not about the request. A stored
+string would be a second copy of something derivable, free to drift the first
+time a route changes.
+
+#### Registration: the rule is an index, not a check
+
+The first person to reach a fresh instance may register; afterwards
+registration is closed until M9 brings invitations.
+
+A `SELECT` then `INSERT` cannot promise that. Under READ COMMITTED two
+simultaneous registrations both see an empty table and both proceed. Rather
+than add a lock every future caller must remember to take, the rule is
+expressed as something the database cannot violate:
+
+```sql
+CREATE UNIQUE INDEX users_at_most_one_credentialed
+    ON users ((email IS NOT NULL)) WHERE email IS NOT NULL;
+```
+
+Every credentialed row indexes the same key, so the second insert collides with
+the first. The collision is also **deterministic rather than lucky**: a second
+inserter blocks on the uncommitted index entry until the first transaction
+resolves, then fails. That is what makes it testable without racing goroutines
+and hoping.
+
+The test runs the gate both ways, because the two arrangements fail
+differently. With the gate committing, both contenders lose to a row they can
+see. With it rolling back, the entry they were waiting on vanishes and exactly
+one wins — and that second case is the one that proves the index rather than
+merely proving that something blocked.
+
+`HasCredentialedUser` exists and is documented as unable to gate anything: it
+answers what a registration form should offer, and its answer is stale the
+instant it is read.
+
+A user row with no credentials is not a half-finished account. It is a
+non-human actor — the rule engine, an importer — which M2a already required,
+since `idempotency_keys.actor_id` is NOT NULL and a replayed rule write must be
+scoped to somebody. Those rows neither count as registrations nor close the
+door on one, and a constraint keeps `email` and `password_hash` travelling
+together so their joint absence stays a meaningful state.
+
+#### Sessions
+
+The cookie carries a 256-bit random token; the table stores only its SHA-256.
+A leaked database therefore yields no usable cookie. It is also why a session's
+identity and its credential are two different values: `id` appears in logs and
+in the audit trail, while the token exists only in the response that set it.
+
+**Revocation is a column, never a delete.** A deleted row cannot tell "revoked"
+from "never existed", and the first of those is something the audit trail and a
+person's own session list are entitled to show.
+
+**Three things end a session and they are resolved in one place** — expiry,
+revocation, and a password changed since the session began. The last is a
+backstop that needs no rows rewritten: a caller that changes a password and
+forgets to revoke has still ended the old sign-ins. A caller obliged to
+remember three conditions eventually remembers two.
+
+**Awaiting a second factor is a state, not a refusal.** That session must be
+returned, because it is the credential the second step itself presents.
+Refusing it would make completing two-factor authentication impossible — and
+the first draft of the SQL comment said it was one of the "ways to be
+unusable", which would have been a specification for exactly that bug.
+
+**Elevation rotates the token.** A session that keeps its cookie across the
+step that raises its privilege is a session fixation: whatever learned the
+pre-authentication token holds a fully authenticated one the moment the person
+finishes. The statement also refuses to elevate twice, so a replayed completion
+cannot mint a second live token for one row.
+
+#### Two similar races, two different mechanisms — and only one of them earned
+
+TOTP and backup codes both have a "two submissions of one secret" problem, and
+the obvious move is to solve both the same way. Breaking each solution showed
+they are not the same problem.
+
+**TOTP needs the row lock.** Its write is an unconditional
+`SET last_used_counter = $2`, so nothing in the statement can tell that another
+transaction already advanced it. Removing `FOR UPDATE` turns the concurrency
+test red: both readers see the old counter, both find the code unspent, both
+succeed.
+
+**Backup codes do not.** Spending one is naturally conditional — the row must
+still be unspent — and `MarkBackupCodeUsed` says so in its own WHERE. Under
+READ COMMITTED the second UPDATE blocks on the first one's row lock,
+re-evaluates against the committed version and matches nothing. The lock that
+was originally written there was removed after **removing it left the
+concurrency test green**, which is the only way that would ever have been
+noticed.
+
+Both findings are recorded in the SQL beside the statements, including how each
+was established, so the absent lock is not helpfully restored by someone later.
+The comment on `ListUnusedBackupCodeHashes` says in as many words that a lock
+there would add no guarantee and asks the reader not to add one back believing
+it protects something — an absent mechanism needs a louder note than a present
+one, because its absence looks like an oversight.
+> **Rule.** A construction copied for uniformity with somewhere else is not
+> known to do anything in its new home. Consistency is a reason to *look* at a
+> mechanism, never evidence that it is load-bearing where it now sits. The only
+> way to find out is to take it out and see whether anything goes red — and if
+> nothing does, the honest outcomes are to remove it or to label it as not
+> being the guarantee. Leaving it in place unlabelled teaches the next reader
+> that it is doing the work.
+
+A third break sharpened it further. Removing the `used_at IS NULL` clause from
+the UPDATE fails the *concurrent* test but not the sequential one, because the
+list query filters spent codes and a replay presented later never reaches the
+matcher. So the list filter covers the sequential case, the UPDATE clause
+covers the concurrent one, and only the UPDATE clause is uniquely necessary.
+The filter stays as the correct question and the right index, labelled as not
+being the guarantee.
+
+#### What went wrong, and what it teaches
+
+**A CHECK constraint caught a statement-ordering bug.** `ConfirmTOTPEnrolment`
+wrote the counter before marking the enrolment confirmed, and
+`user_totp_unconfirmed_has_no_counter` refused it. The two statements are in
+one transaction and the end state is legal, but a CHECK is evaluated per
+statement rather than at commit. Order reversed.
+
+**The break harness was contaminating its own results.** It regenerated sqlc
+when a break edited a `.sql` file, but restoring that file afterwards does not
+restore the generated `.go`. Every break following a SQL break therefore ran
+against the previous break's generated code, and three of them appeared to fail
+tests they had nothing to do with — including one failure that looked exactly
+like a flaky test and could not be reproduced in six attempts.
+
+This is the §11 rule about checking *what* failed, arriving inside the tool
+built to apply that rule. Nothing was wrong with the code or the tests; the
+apparatus was lying, and the only thing that exposed it was a predicted failure
+list that the results did not match.
+> **Rule.** A harness that mutates generated artefacts must restore them as
+> deliberately as it restores their sources. Restoring an input is not
+> restoring an output.
+
+**Five predictions were wrong and the code was right.** Each was recorded and
+corrected rather than quietly widened after the fact: a break to token hashing
+fails every test that creates a session, not one; ignoring revocation fails two
+tests, not one; refusing pending sessions did not fail the elevation test until
+that test was changed to look the session up by its cookie, which is what the
+real flow does.
+
+That last one was a genuine coverage gap the prediction found. The elevation
+test had been passing a session id straight in, so it never exercised the
+lookup that a handler must perform first — and refusing pending sessions would
+have broken two-factor authentication in production while the test stayed
+green.
+
+#### Verification
+
+`make` is still not installed here, so these are the commands behind the
+targets rather than the targets.
+
+- `go test -race -coverprofile=coverage.out ./...` — every package passes.
+  `internal/auth` 91,0%, `internal/store` 70,4% (was 68,3%), `internal/ledger`
+  91,4% and untouched.
+- `./bin/golangci-lint run` — 0 issues. `./bin/golangci-lint fmt` changes
+  nothing.
+- `./bin/sqlc generate` — byte-identical on a second run.
+- `git status --porcelain internal/ledger` — empty. The freeze holds.
+- `go mod edit -json` — Go directive still 1.22, no dependency added.
+- **Migrations 8 and 9 down, verified through the catalogue** rather than a
+  `pg_dump` diff. Columns, constraints, indexes, tables, functions, triggers
+  and comments after `migrate down` match a database built by applying the
+  earlier migrations directly, with the one expected difference golang-migrate
+  contributes: its own `schema_migrations` table.
+- The catalogue comparison was itself broken on purpose three times, with the
+  outcome predicted first: removing a `DROP TABLE` leaves 29 objects behind;
+  removing a `DROP COLUMN` leaves 2; removing a `DROP INDEX` leaves **none**,
+  because dropping the column cascades to it. That third result is why the
+  down migration now says those two `DROP INDEX` lines are redundant and kept
+  deliberately.
+- 18 deliberate breaks of the store guards, each watched failing **and** checked
+  against the test it was predicted to fail.
+
+One correction to an earlier report: the first pass of the catalogue check
+produced an empty diff because the SQL file never reached the container and
+both sides were empty. A check that reads nothing passes. It was rerun with a
+line count asserted first.
+
+#### Configuration, client addresses and the login limiter
+
+Three pieces, none of them wired to a handler yet: the configuration that
+describes them, the function that decides whose address a request belongs to,
+and the limiter that counts failed sign-ins.
+
+`internal/config` now imports `internal/auth`, and the direction is safe
+because depguard already refuses `internal/config` inside `internal/auth` — the
+cycle cannot form. The reason to import at all is the Argon2id floor: the floor
+has to be *the same number* as the default, and expressing it as
+`auth.DefaultParams()` rather than a copy means there is one definition instead
+of two that drift.
+
+#### The Argon2id cost may be raised and never lowered
+
+`auth.DefaultParams()` is the floor as well as the default, so every cost
+variable is one-directional. Configuration exists to make the cost *stronger*.
+
+A number with a knob on it that can be turned down is a number that eventually
+gets turned down — usually by somebody trying to make a slow test suite or a
+small container behave — and the result is a password store weaker than the
+project believes it is, with nothing anywhere saying so. There is no legitimate
+deployment that needs less, either, because DefaultParams was already derived
+from the weakest host Nusa targets.
+
+The ceiling is `auth.MaxVerifiableMemory` rather than a number chosen in
+config, and that is not tidiness. Minting above it would produce hashes
+`auth.Verify` then refuses to read, so the credential table would fill with
+rows nothing can check. The two constants have to agree, so there is only one.
+
+#### Rate limiting: the key is the address, and never the account
+
+The tension is real and the choice is recorded rather than made quietly.
+
+Counting failures per account stops one account being brute-forced, and hands
+anyone who can reach the login form a way to lock a named person out: wrong
+passwords for their address until the limit trips, repeated forever. For Nusa
+that is not a trade between comparable harms. Nusa is self-hosted and until M9
+holds exactly one account, so a per-account limiter *is* a per-instance
+limiter, and any stranger who can reach the page can deny the only user access
+to their own finances.
+
+So the key is the client address. What it costs:
+
+- **An attacker with many source addresses is not slowed.** Acceptable because
+  the limiter was never the main defence against guessing — Argon2id is. At the
+  measured cost a server answers a few attempts a second with no limiter at
+  all, which is nothing against a password with real entropy. The limiter stops
+  one source from making that rate matter, and stops a scripted flood from
+  spending a small machine's memory on Argon2id.
+- **People behind one NAT gateway share an allowance.** Bounded rather than
+  open-ended: a key at its limit records no further failures, so a flood cannot
+  hold an address blocked indefinitely. The allowance refills every window
+  however long the attempt runs — measured at exactly `limit` openings per
+  window under continuous failure — so a co-located user keeps getting chances.
+
+Failures are counted, not requests. A limiter in middleware throttles a browser
+reloading a login page and does nothing about credential stuffing sent as
+well-formed POSTs. A successful sign-in clears the count, so somebody who
+mistypes four times and then succeeds is not left one attempt from being locked
+out of their own instance.
+
+**This decision is conditional, and the condition is written down because it
+will expire.**
+
+The argument above is not a general claim about rate limiting. It rests on one
+fact about Nusa as it stands: an instance holds exactly one account, so a
+per-account limiter *is* a per-instance limiter and locking the account is
+locking the service. Take that fact away and the arithmetic changes — with
+several accounts, a per-account counter denies one person and leaves the others
+working, which is a far smaller harm than it is today and may well be worth the
+protection it buys.
+
+| | |
+| --- | --- |
+| **What makes the decision correct** | an instance has at most one credentialed account, enforced by `users_at_most_one_credentialed` |
+| **What invalidates it** | the instance can hold more than one account |
+| **What brings that about** | **M9**, which adds households and invitations and drops that index |
+
+So M9 must reopen this, not inherit it. The shape to weigh then is a
+per-account counter that *slows* rather than blocks — never one that locks —
+layered on top of the per-address limiter rather than replacing it.
+
+A decision that is right today because of one fact goes silently wrong when the
+fact changes, unless somebody wrote down which fact it was.
+
+#### Client addresses: what the tests had to prove
+
+`api.ClientIP` walks X-Forwarded-For from the right, strips hops that are
+themselves trusted, and stops at the first that is not. X-Real-IP,
+True-Client-IP and Forwarded are never read at all — a single value carries no
+chain, so nothing about it can be verified, and a header that cannot be
+verified is not a weaker signal but no signal.
+
+The four properties, each broken on purpose:
+
+| Property | How it was falsified |
+| --- | --- |
+| A forged header from an untrusted client changes nothing | skip the peer-trust check: the forgery wins |
+| An empty list ignores the header entirely | see the note below |
+| Stripping stops at the first untrusted hop | walk left to right: the client's planted address wins |
+| A long chain is bounded | remove the hop cap: an address planted past 200 hops decides the answer |
+
+The long-chain guard asserts a **value** rather than a duration. The header
+puts an untrusted address far to the left of 200 trusted hops, so an
+implementation that walks the whole chain finds it and one that stops at the
+cap never does — which distinguishes them without a stopwatch, and a timing
+assertion would have been the flakiest thing in the file.
+
+**One branch is not independently falsifiable and is labelled as such.** The
+explicit `len(trusted) == 0` check is subsumed by the check after it, because
+an empty list contains no peer either way. It is kept because it states the
+rule rather than an optimisation: if `inAny` were ever changed to treat an
+empty list as matching everything, this line is what stops that becoming
+blanket trust. Recorded here so nobody later removes it believing it does
+nothing, and so nobody believes a test covers it.
+
+#### Two guards that proved less than they claimed
+
+**A multi-line header test could not tell the two orders apart.** Reversing the
+loop over header lines left it green: its untrusted address was leftmost under
+either reading, so both orders produced the same answer. The fix is a case
+where the order decides — a forgery on the first line, the truth appended to
+the last — after which reading forwards returns the forgery. Two axes, covered
+separately: one break for order *within* a line, one for order *between* lines.
+
+**A limiter test asserted something incoherent.** It flooded failures forward
+to t=103 and then queried at t=59, so the limiter was being asked about the
+past after being told about the future, and it answered `1m1s` because
+`now.Sub(oldest)` was negative. The code was right; the test had time running
+backwards. Rewritten to flood only inside the block, which is the property
+actually wanted: hammering during a block does not push its own release out.
+
+#### Decision (c), and why it has no variable
+
+`Config.SecureCookies()` is derived from `Env` and reads nothing. In production
+it is true and no environment variable changes it.
+
+The falsification is the change somebody would actually make: add a field, read
+`NUSA_COOKIE_SECURE` in `Load`, consult it in `SecureCookies`. The test sets
+fourteen plausible spellings — `NUSA_COOKIE_SECURE`, `NUSA_INSECURE_COOKIES`,
+`NUSA_TLS`, `NUSA_DEV` and the rest — to six values meaning "off", and asserts
+the answer is still true. With the field added it goes red.
+
+The structural point is stronger than the test: `Config` does not retain the
+lookup function, so `SecureCookies` *cannot* read a variable without somebody
+adding one first. `NUSA_ENV`'s own comment claimed it "only affects operational
+defaults such as log formatting", which stopped being true the moment this
+landed; both that comment and the field's doc were corrected.
+
+#### The CIDR validator refuses rather than guesses
+
+Every rejection is a case with two readings where the parser would silently
+pick one:
+
+- **Host bits set.** `netip.ParsePrefix` accepts `10.0.0.1/24` and masks it to
+  `10.0.0.0/24` — 256 addresses when the operator may have meant one. Refused,
+  with both readings named in the message.
+- **`0.0.0.0/0` and `::/0`.** Trusting every client to state its own address is
+  the blanket trust §10 exists to forbid, and worse than not configuring
+  proxies at all because it looks deliberate.
+- **Empty entries.** A trailing or doubled comma means the value was assembled
+  by something that got it wrong; skipping the gap hides that.
+- **Exact duplicates.** Overlapping ranges are legitimate and accepted; the
+  same entry twice is a copy-paste error.
+- **An IPv4 range in IPv6 form.** `::ffff:10.0.0.0/104` and `10.0.0.0/8` are
+  the same network with prefix lengths 96 apart, and converting between them by
+  arithmetic is the quiet reinterpretation this validator exists to avoid. A
+  *bare* `::ffff:10.0.0.1` is accepted and normalised, because a single address
+  has no length to get wrong.
+
+A bare address is accepted as a single host, because one address unambiguously
+means one address and requiring `/32` everywhere would be ceremony for the
+commonest case: one reverse proxy, one address.
+
+#### Verification
+
+`make` is still not installed here, so these are the commands behind the
+targets.
+
+- `go test -race -coverprofile=coverage.out ./...` — every package passes.
+  `internal/api` 84,2% (was 70,2%), `internal/auth` 92,6%, `internal/config`
+  92,0%, `internal/ledger` 91,4% and untouched, `internal/store` 70,4% and
+  untouched.
+- `./bin/golangci-lint run` — 0 issues. `noctx` is now excluded for `_test.go`
+  alongside `gosec`, with the reason in the configuration: it exists to catch
+  outbound requests made without a deadline, and `httptest.NewRequest`
+  constructs a request rather than making one.
+- `go mod edit -json` — Go directive still 1.22. No dependency added; all of
+  this is `net/netip`, `sync` and `strconv`.
+- 25 deliberate breaks, each watched failing and each checked against the tests
+  it was predicted to fail. Six predictions were wrong on the first pass; one
+  of those was a genuine coverage gap and is described above, and the other
+  five were breaks that legitimately fail more tests than expected.
+
+#### Environment
+
+Docker Desktop stopped by itself again — the fourth time across M2a and M2b.
+The daemon answered about ten seconds after being relaunched, which matches the
+M2a note: wait on `docker info` succeeding rather than on the named pipe
+existing.
+
+#### Endpoints, middleware, and the three debts that came due here
+
+Registration, sign-in, the second-factor step, sign-out and one authenticated
+route, plus the middleware they hang off. This is where the pieces built in
+isolation meet: `ClientIP` decides the limiter's key, `VerifyDecoy` sits on the
+no-such-account path, and `Config.SecureCookies` decides one cookie attribute.
+
+**Nothing is cached, and that is the property only this layer can establish.**
+The store proves a revoked session stops resolving; what it cannot show is
+whether the middleware ever asks again. A cache holding sessions for even a few
+seconds would leave a revoked token working for that long and every store test
+would still pass. So the middleware resolves per request, and a test counts the
+lookups — five requests must produce five.
+
+**What is not achieved, stated rather than implied.** A handler that has
+already passed the middleware is not interrupted. The test arranges a genuine
+overlap — the handler blocks until the test releases it, so the revocation
+provably commits while the first request is still inside — and proves that
+concurrent and subsequent requests are refused from that instant. The in-flight
+one completes. Nothing short of cancelling its context mid-flight would change
+that, and every Nusa endpoint is a short read or write, so the window is
+milliseconds.
+> **Debt.** A watcher that cancels the request context on revocation earns its
+> per-request goroutine the day there is a long-lived endpoint — a server-sent
+> event stream, a long poll — and not before.
+
+#### Two right requirements that cancel each other
+
+The instruction was that failed sign-ins reach `audit_log`, because a log that
+records only successes is useless for an investigation. That is correct on its
+own. Following it would have undone the defence built three steps earlier.
+
+An anonymous attempt has no actor, and `audit_log_human_origin_has_an_actor`
+refuses a human origin without one — so a row could be written for a wrong
+password against a real account and *not* for an address that does not exist.
+That asymmetry is a database write on one path and not the other, which is a
+timing difference, which is precisely the account-enumeration oracle that
+`VerifyDecoy` and the single shared refusal message exist to close.
+
+So failures go to the structured log, identically on both paths, carrying the
+`account_exists` flag an operator needs and an attacker cannot see.
+`audit_log` takes what has an actor: registration, sign-in, second factor,
+sign-out.
+> **Rule.** Requirements that are each sound can still be unsatisfiable
+> together through one path, and the conflict is invisible from either one
+> alone. What surfaced this was not asking whether the requirement was met — it
+> was asking what the code *does on both branches* and noticing that one of
+> them now touches the database and the other does not. Check the shape of the
+> work on every path, not the presence of the feature on the path you were
+> thinking about.
+
+> **Debt, named with its trigger.** A separate `auth_events` table is the right
+> home for anonymous attempts, and is deferred rather than forced. The moment
+> an operator needs a queryable history of attempts that have no actor, that is
+> **migration 10** — a new table with its own shape — and never a relaxation of
+> the human-origin constraint, which is what makes the rest of the audit log
+> worth reading.
+
+#### A test that arranged its own answer
+
+The check that a successful sign-in clears the rate-limit count advanced the
+clock two minutes past a one-minute window before signing in. The count had
+therefore expired on its own, and the following attempts were allowed whether
+or not anything had cleared anything. Removing the `Succeed` call left it
+green.
+
+It is a shape worth naming because it does not look like a broken test. Waiting
+out a timeout, seeding the expected value, asserting a default — all of them
+read as ordinary arrangement, and all of them make the subject a passenger.
+Rewritten without advancing the clock: four failures out of an allowance of
+five, a success, then four more failures that must all be refused as wrong
+passwords rather than as rate limiting.
+> **Rule.** Promoted to §11. Ask what would happen if the function under test
+> were deleted outright, not merely changed.
+
+A second test had the same defect in a different costume. "A pending session
+may sign out" asserted only that a later request returned 401 — but a wrong
+one-time code returns 401 too, so it passed without sign-out revoking
+anything. It now asserts the error *code*: `unauthenticated`, not
+`invalid_credentials`.
+
+#### What the responses are allowed to say
+
+One code and one status for every credential failure — no such account, wrong
+password, wrong one-time code, spent backup code — and one for every refused
+registration, whether the instance is full or the address is taken. The tests
+compare **whole response bodies** rather than codes, because a difference
+anywhere in the body is the oracle.
+
+`writeInvalidCredentials` exists as a single function rather than four call
+sites for the same reason: a refactor that touches one branch is how the two
+answers drift apart, and the drift is the leak.
+
+#### Smaller decisions worth knowing
+
+**`PasswordHasher` is an interface for exactly one reason.** `VerifyDecoy` has
+no return value and no observable effect, so proving the no-such-account path
+calls it needs either a counter or a stopwatch — and a timing assertion in CI
+is a flake waiting to happen. A wrong password deliberately does *not* spend a
+decoy: it already spent a real verification, and counting both would make the
+failure path cost twice the success path, which is the same leak pointing the
+other way.
+
+**The cookie name carries `__Host-` in production.** That prefix is a promise
+the browser enforces: a cookie so named is refused unless it is Secure, has
+Path=/, and has no Domain. What it buys is that a subdomain cannot set a
+session cookie for the parent — on a self-hosted box a subdomain is exactly
+what an attacker is most likely to control. Development cannot use it, because
+the prefix requires Secure and Secure is off there, so the name differs between
+environments and switching `NUSA_ENV` invalidates existing cookies. That is the
+correct outcome: a session minted under one set of transport guarantees should
+not silently carry over into another.
+
+**gosec's G124 is suppressed rather than obeyed, twice.** It wants `Secure` set
+to a literal `true`. Obeying it would mean nobody could sign in over
+`http://localhost`, and it would replace the derivation decision (c) exists to
+protect with a constant. `HttpOnly` and `SameSite` *are* literals, which is the
+part of the rule that should be unconditional.
+
+**`NewUUIDv7` is fifteen lines here rather than a direct dependency.**
+`google/uuid` is already in the module graph indirectly; promoting it would put
+it in the application's own graph for a function that is a timestamp, two
+nibbles and some randomness. §12 asks for a justification for a new dependency
+and there is not one.
+
+**Registering does not sign anybody in.** The password was chosen rather than
+presented, and a flow that hands out a session on registration is one where the
+credential is never actually tested before it grants access.
+
+#### State after M2b Phase 1
+
+The ledger is reachable by a person. Somebody can register on a fresh instance,
+sign in, be asked for a second factor if they have one, complete it with a
+one-time code or a backup code, hold a session that is resolved from the
+database on every request, and sign out in a way that ends the session rather
+than forgetting it locally.
+
+`internal/ledger` is byte-for-byte unchanged across the whole of M2b Phase 1.
+The freeze that Phase 0 closed has held: authentication added a package, two
+migrations, a repository and an HTTP surface, and touched the domain not at
+all.
+
+What does **not** exist: any endpoint that reaches the ledger. `/api/v1/auth`
+is the whole of the REST surface. Accounts, transactions and commodities,
+cursor pagination, idempotency through HTTP, and the OpenAPI document are the
+next phase, and they arrive behind a session middleware that already works.
+
+**The debts that leave this phase, each with the condition that calls it in:**
+
+| Debt | What brings it due |
+| --- | --- |
+| Cancelling an in-flight request on revocation | the first long-lived endpoint — SSE, a long poll, anything that outlives a few milliseconds |
+| An `auth_events` table for anonymous attempts | an operator needing a queryable history of attempts that have no actor. Migration 10, never a weaker constraint |
+| Re-weighing per-account rate limiting | **M9**. The current decision is correct only because an instance holds one account, and M9 removes that |
+| Encrypting the TOTP secret at rest | a key that genuinely lives somewhere other than beside the database backup |
+| Sweeping expired sessions on a schedule | `SweepExpiredSessions` exists and nothing calls it periodically |
+| TOTP enrolment and backup-code endpoints | a person can be *asked* for a second factor but cannot yet set one up over HTTP; the store and the domain are complete |
+
+#### Deliberately deferred
+
+The debts carried out of this phase are in the table above, each with the
+condition that calls it in rather than a milestone number, because most of them
+are triggered by a change in the product rather than by a date.
+
+What is deferred to a *named* milestone:
+
+| Deferred | Lands in |
+| --- | --- |
+| The REST API over the ledger: `/api/v1/accounts`, `/transactions`, `/commodities`, cursor pagination, idempotency through HTTP, OpenAPI 3.1 generated from the code and validated in CI | M2b Phase 2 |
+| TOTP enrolment, confirmation and backup-code endpoints. The store and the domain are complete and tested; only the HTTP surface is missing, so a second factor can be demanded but not yet configured | M2b Phase 2 |
+| Encrypting the TOTP secret at rest under a key kept away from the database. Storing it in clear is recorded as a decision, not an oversight — a key sitting in the same `.env` as the same backup protects nothing | Unscheduled |
+| Sweeping expired sessions on a schedule. `SweepExpiredSessions` exists; nothing calls it periodically | M12 |
