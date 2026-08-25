@@ -16,17 +16,22 @@ INSERT INTO idempotency_keys (
     actor_id, key, fingerprint, entity_kind, entity_id, created_at, expires_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (actor_id, key) DO UPDATE
-    SET fingerprint = excluded.fingerprint,
-        entity_kind = excluded.entity_kind,
-        entity_id   = excluded.entity_id,
-        response    = NULL,
-        created_at  = excluded.created_at,
-        expires_at  = excluded.expires_at
+    SET fingerprint     = excluded.fingerprint,
+        entity_kind     = excluded.entity_kind,
+        entity_id       = excluded.entity_id,
+        -- An expired claim being taken over must not keep the previous
+        -- attempt's answer: the work is about to be done again, and a
+        -- stale body paired with a fresh entity id would replay a
+        -- response describing something that no longer exists.
+        response_body   = NULL,
+        response_status = NULL,
+        created_at      = excluded.created_at,
+        expires_at      = excluded.expires_at
   WHERE idempotency_keys.expires_at <= excluded.created_at
-RETURNING actor_id, key, fingerprint, entity_kind, entity_id, response, created_at, expires_at;
+RETURNING actor_id, key, fingerprint, entity_kind, entity_id, response_status, response_body, created_at, expires_at;
 
 -- name: GetIdempotencyKey :one
-SELECT actor_id, key, fingerprint, entity_kind, entity_id, response, created_at, expires_at
+SELECT actor_id, key, fingerprint, entity_kind, entity_id, response_status, response_body, created_at, expires_at
   FROM idempotency_keys
  WHERE actor_id = $1 AND key = $2;
 
@@ -133,3 +138,13 @@ SELECT id, account_id, opened_by, opened_on,
  WHERE account_id = $1 AND remaining_amount > 0
  ORDER BY opened_on, id
    FOR UPDATE;
+
+-- name: RecordIdempotentResponse :execrows
+-- Stores what the first attempt answered, so a replay can repeat it.
+--
+-- Status and body are written together because the constraint refuses half a
+-- response: a replay that had to invent a missing status would be answering a
+-- question the original never asked.
+UPDATE idempotency_keys
+   SET response_status = $3, response_body = $4
+ WHERE actor_id = $1 AND key = $2;
