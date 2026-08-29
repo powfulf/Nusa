@@ -2,7 +2,11 @@
 
 package api
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/GaffaQ/Nusa/internal/ledger"
+)
 
 // Test-only handles on unexported middleware.
 //
@@ -27,3 +31,22 @@ var (
 	IdempotencyKeyHeaderForTest     = idempotencyKeyHeader
 	MaxIdempotencyKeyLengthForTest  = maxIdempotencyKeyLength
 )
+
+// The cursor codec. It has no route in front of it yet — the transaction
+// endpoints arrive later in this phase — and the encoding is exactly the kind
+// of thing that is cheap to prove now and expensive to unpick once a client
+// holds tokens produced by it.
+var (
+	EncodeCursorForTest           = encodeCursor
+	DecodeCursorForTest           = decodeCursor
+	ErrCursorFilterChangedForTest = errCursorFilterChanged
+)
+
+// TransactionFiltersForTest builds the filter set a cursor is bound to.
+func TransactionFiltersForTest(from, to ledger.Date) transactionFilters {
+	return transactionFilters{From: from, To: to}
+}
+
+// DigestForTest exposes the filter fingerprint so a test can build a token
+// with a correct digest and a deliberately wrong field elsewhere.
+func DigestForTest(f transactionFilters) string { return f.digest() }
