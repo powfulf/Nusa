@@ -46,7 +46,7 @@ type IdempotencyKey struct {
 	Fingerprint []byte
 	EntityKind  string
 	EntityID    pgtype.UUID
-	// The document the first attempt answered with. Renamed from "response" in migration 9, when the status was split out.
+	// The document the first attempt answered with, stored verbatim. json rather than jsonb: this column is handed back byte for byte and is never queried, and jsonb would reorder keys and drop whitespace (migration 10).
 	ResponseBody []byte
 	CreatedAt    pgtype.Timestamptz
 	ExpiresAt    pgtype.Timestamptz
