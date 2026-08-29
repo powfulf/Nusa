@@ -5,6 +5,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -106,4 +107,85 @@ func (s *Store) SaveUser(ctx context.Context, id string) error {
 		return fmt.Errorf("insert user %s: %w", id, err)
 	}
 	return nil
+}
+
+// The two halves of an HTTP replay. A key is claimed inside the write's own
+// database transaction (see claimKey), so a stored claim always describes a
+// write that committed; the response is recorded afterwards, by the edge,
+// because rendering it is not this package's job.
+//
+// The pair is deliberately narrow. Nothing here knows what a status code means
+// or what the body contains — it is two opaque values keyed by a claim, and
+// the HTTP layer decides everything else.
+
+// SaveIdempotentResponse records what the first attempt answered, so that a
+// replay of it can answer the same way.
+//
+// Status and body travel together because the schema refuses half a response:
+// a replay that had to invent a missing status would be answering a question
+// the original never asked. The status is checked here as well as by the
+// constraint, so a caller passing zero learns which value was wrong rather
+// than reading a constraint name.
+func (s *Store) SaveIdempotentResponse(
+	ctx context.Context, actorID, key string, status int, body []byte,
+) error {
+	actor, err := uuidFrom(actorID)
+	if err != nil {
+		return err
+	}
+	if status < 100 || status > 599 {
+		return fmt.Errorf("%w: %d is not an HTTP status", ErrInvalidWrite, status)
+	}
+	if !json.Valid(body) {
+		// The column is jsonb. Postgres would refuse this too, with an error
+		// naming a syntax position in a document the caller never sees.
+		return fmt.Errorf("%w: response body is not JSON", ErrInvalidWrite)
+	}
+
+	narrowed := int16(status) //nolint:gosec // G115: bounded to 100..599 above
+	rows, err := s.RecordIdempotentResponse(ctx, RecordIdempotentResponseParams{
+		ActorID:        actor,
+		Key:            key,
+		ResponseStatus: &narrowed,
+		ResponseBody:   body,
+	})
+	if err != nil {
+		return fmt.Errorf("record idempotent response: %w", err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("%w: no claim on key %q to attach a response to", ErrNotFound, key)
+	}
+	return nil
+}
+
+// IdempotentResponse reads what an earlier attempt answered.
+//
+// The second return value separates "no claim, or a claim with no response
+// yet" from "a response that happens to be empty". They are not the same
+// thing: the first means the caller must produce an answer of its own, and a
+// zero status silently standing in for it would replay a response nobody ever
+// sent.
+func (s *Store) IdempotentResponse(
+	ctx context.Context, actorID, key string,
+) (status int, body []byte, ok bool, err error) {
+	actor, err := uuidFrom(actorID)
+	if err != nil {
+		return 0, nil, false, err
+	}
+
+	row, err := s.GetIdempotencyKey(ctx, GetIdempotencyKeyParams{ActorID: actor, Key: key})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return 0, nil, false, nil
+	case err != nil:
+		return 0, nil, false, fmt.Errorf("read idempotency key: %w", err)
+	}
+
+	// Both or neither, enforced by idempotency_keys_response_is_whole_or_absent.
+	// Reading only one of them would make a schema guarantee into an
+	// assumption held in this function.
+	if row.ResponseStatus == nil || row.ResponseBody == nil {
+		return 0, nil, false, nil
+	}
+	return int(*row.ResponseStatus), row.ResponseBody, true, nil
 }
