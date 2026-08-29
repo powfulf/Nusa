@@ -3,6 +3,7 @@
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 )
@@ -56,6 +57,17 @@ const (
 	// with this.
 	CodeRegistrationUnavailable ErrorCode = "registration_unavailable"
 
+	// CodeIdempotencyKeyRequired reports a mutation sent without the header.
+	//
+	// It is separate from CodeInvalidRequest because the caller acts
+	// differently: a malformed body is fixed by changing what was sent, and
+	// this is fixed by adding something that was never there.
+	CodeIdempotencyKeyRequired ErrorCode = "idempotency_key_required"
+
+	// CodeIdempotencyKeyReused reports a key already claimed for a different
+	// request. The caller must mint a new key, not retry this one.
+	CodeIdempotencyKeyReused ErrorCode = "idempotency_key_reused"
+
 	// CodeInternal reports a fault on this side. The response carries nothing
 	// about it; the log carries everything.
 	CodeInternal ErrorCode = "internal"
@@ -96,3 +108,8 @@ func writeInternalError(w http.ResponseWriter, logger *slog.Logger, what string,
 	logger.Error(what, slog.String("error", err.Error()))
 	writeError(w, logger, http.StatusInternalServerError, CodeInternal, "internal error")
 }
+
+// errNoIdempotencyKey marks a handler reached without requireIdempotencyKey in
+// front of it. It never travels to a caller — it exists so the log line says
+// which mistake was made rather than reporting a bare internal error.
+var errNoIdempotencyKey = errors.New("no idempotency key in request context")

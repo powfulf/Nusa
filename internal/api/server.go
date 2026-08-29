@@ -35,6 +35,12 @@ type Deps struct {
 	// louder failure than mounting them and dereferencing nil on somebody's
 	// first sign-in.
 	Auth *AuthDeps
+
+	// Ledger carries what the ledger endpoints need. Absent or incomplete,
+	// those routes are not mounted, for the same reason Auth is not: a route
+	// that dereferences nil on somebody's first write is a quieter failure
+	// than a route that was never there.
+	Ledger *LedgerDeps
 }
 
 // NewRouter assembles the HTTP handler.

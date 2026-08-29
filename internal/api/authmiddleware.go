@@ -40,7 +40,10 @@ import (
 
 type contextKey int
 
-const sessionContextKey contextKey = iota
+const (
+	sessionContextKey contextKey = iota
+	idempotencyKeyContextKey
+)
 
 // sessionFrom returns the session a request was authenticated with.
 //
