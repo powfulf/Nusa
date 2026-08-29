@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/GaffaQ/Nusa/internal/ledger"
 )
@@ -374,35 +375,14 @@ func (s *Store) LoadTransaction(ctx context.Context, id ledger.TransactionID) (l
 		return ledger.Transaction{}, fmt.Errorf("get transaction %s: %w", id, err)
 	}
 
-	postingRows, err := s.ListPostingsByTransaction(ctx, key)
+	postingRows, err := s.ListPostingsByTransactions(ctx, []pgtype.UUID{key})
 	if err != nil {
 		return ledger.Transaction{}, fmt.Errorf("list postings of %s: %w", id, err)
 	}
 
-	postings := make([]ledger.Posting, 0, len(postingRows))
-	for _, pr := range postingRows {
-		amount, err := moneyTo(pr.Amount, pr.CommodityCode)
-		if err != nil {
-			return ledger.Transaction{}, fmt.Errorf("posting %s: %w", uuidTo(pr.ID), err)
-		}
-		rate, err := rateTo(rateColumns{
-			base: pr.RateBase, quote: pr.RateQuote, num: pr.RateNum, den: pr.RateDen,
-		})
-		if err != nil {
-			return ledger.Transaction{}, fmt.Errorf("posting %s: %w", uuidTo(pr.ID), err)
-		}
-		posting, err := ledger.NewPosting(ledger.PostingSpec{
-			ID:       ledger.PostingID(uuidTo(pr.ID)),
-			Account:  ledger.AccountID(uuidTo(pr.AccountID)),
-			Amount:   amount,
-			Rate:     rate,
-			Memo:     pr.Memo,
-			Reverses: ledger.PostingID(uuidTo(pr.ReversesPostingID)),
-		})
-		if err != nil {
-			return ledger.Transaction{}, fmt.Errorf("%w: posting %s: %w", ErrCorrupt, uuidTo(pr.ID), err)
-		}
-		postings = append(postings, posting)
+	postings, err := postingsFrom(postingRows)
+	if err != nil {
+		return ledger.Transaction{}, err
 	}
 
 	date, err := dateTo(row.TxnDate)
@@ -607,4 +587,39 @@ func (s *Store) PostingOwner(ctx context.Context, id ledger.PostingID) (ledger.T
 		return "", fmt.Errorf("posting owner of %s: %w", id, err)
 	}
 	return ledger.TransactionID(uuidTo(owner)), nil
+}
+
+// postingsFrom turns stored rows into domain postings, in the order given.
+//
+// It is shared by every reader rather than written once per query. A second
+// copy would be a second place for a rate, a memo or a reversal link to be
+// dropped on the way out, and the round-trip property test would only be
+// watching one of them.
+func postingsFrom(rows []Posting) ([]ledger.Posting, error) {
+	postings := make([]ledger.Posting, 0, len(rows))
+	for _, pr := range rows {
+		amount, err := moneyTo(pr.Amount, pr.CommodityCode)
+		if err != nil {
+			return nil, fmt.Errorf("posting %s: %w", uuidTo(pr.ID), err)
+		}
+		rate, err := rateTo(rateColumns{
+			base: pr.RateBase, quote: pr.RateQuote, num: pr.RateNum, den: pr.RateDen,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("posting %s: %w", uuidTo(pr.ID), err)
+		}
+		posting, err := ledger.NewPosting(ledger.PostingSpec{
+			ID:       ledger.PostingID(uuidTo(pr.ID)),
+			Account:  ledger.AccountID(uuidTo(pr.AccountID)),
+			Amount:   amount,
+			Rate:     rate,
+			Memo:     pr.Memo,
+			Reverses: ledger.PostingID(uuidTo(pr.ReversesPostingID)),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("%w: posting %s: %w", ErrCorrupt, uuidTo(pr.ID), err)
+		}
+		postings = append(postings, posting)
+	}
+	return postings, nil
 }
