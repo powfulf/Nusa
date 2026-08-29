@@ -281,8 +281,13 @@ satisfied by editing the check.
 - **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
 - **A guard must not borrow an external source's authority for something that source never said.** Published test vectors prove exactly what they cover and nothing adjacent to it; a check labelled as RFC-backed when the RFC is silent on the case is a false claim wearing a citation. Self-consistency checks are legitimate and often the only thing available — differential tests, round trips, invariants against a second implementation — but they are labelled as what they are, in the test, so nobody later mistakes them for proof from outside.
 - **A comparison check must prove both sides are non-empty before it compares them.** A diff of two empty sets is green, a `grep` over a file that never arrived matches nothing, and a suite whose cases are all rejected early reports success. Every one of those looks exactly like a pass. Assert the size of what you are about to compare — line counts, row counts, case counts — and fail if it is zero, so the check cannot succeed by reading nothing. This has now happened twice: a property suite that got twelve times faster because its generator's output was being discarded, and a schema comparison that produced an empty diff because the SQL never reached the container.
-- **A test that arranges the expected outcome by itself is testing nothing.** Ask what would happen if the function under test were deleted outright, not merely changed — if the assertion would still hold, the setup is producing the result and the subject is a passenger. The instance here: a check that a successful sign-in clears the rate-limit count first advanced the clock past the window, so the count had expired on its own and the test passed whether or not anything cleared it. Waiting out a timeout, seeding the answer, and asserting a default all fail this way, and all of them look like ordinary arrangement.
+- **A test that arranges the expected outcome by itself is testing nothing.** Ask what would happen if the function under test were deleted outright, not merely changed — if the assertion would still hold, the setup is producing the result and the subject is a passenger. The instance here: a check that a successful sign-in clears the rate-limit count first advanced the clock past the window, so the count had expired on its own and the test passed whether or not anything cleared it. Waiting out a timeout, seeding the answer, and asserting a default all fail this way, and all of them look like ordinary arrangement. The same shape reaches the assertion itself, through a disjunction one branch of which is always true: `require.True(t, errors.Is(err, ErrInvalidWrite) || ledger.ValidateID("not-a-uuid") != nil)` cannot fail, whatever the code does. Both are tests whose green does not depend on the subject — one arrives through the arrangement, the other through the assertion — and neither is found by running the suite, because both are already passing. They are found by reading the line and asking what would have to be true for it to go red.
 - **Verification tooling is subject to the discipline it enforces.** A harness that applies a break, measures, and restores must restore *derived* artefacts as deliberately as it restores their sources: putting a `.sql` file back does not put the generated `.go` back, and the next measurement then runs against the previous break's code. The tool is not exempt from "watch it fail" merely because it is the thing doing the watching.
+- **A fake more obedient than the real thing makes every guard above it pass while the property they rest on is unmet.** This is not the usual failure of a fake being wrong; the fake is *better behaved* than what it stands for, so the layer above it is proved against a world that does not exist. Thirteen guards over the HTTP idempotency layer all worked correctly and all ran against an in-memory store that returns exactly what it was handed — which is precisely what `jsonb` does not do: it reordered keys, dropped whitespace and discarded a duplicate key, so the "byte-for-byte replay" those guards sat on was false at the only layer that decides it.
+
+  So: **wherever a fake stands in for an external system, write down which properties of that system the code above it relies on, and test those properties against the real thing.** Not against the fake, which will agree with any claim made about it. "It returns what it was given" is an assumption until it has been proved on real storage, and the input that proves it has to be chosen to break the promise — an awkward document, not a realistic one, because a well-behaved value passes under either implementation and distinguishes nothing.
+
+  What found it was not breaking a guard. Every break behaved as predicted. It was refusing to take the phrase "byte-for-byte" in our own comment as given, and going to look at what the column does. **A claim we write about our own code is a candidate for testing, not a premise** — and the lower the layer that actually keeps the promise, the further the comment asserting it tends to sit from anything that checks it.
 - **"Flaky" is a symptom, never a diagnosis.** A failure that will not reproduce is a fact needing an explanation, not noise to be waved away as the environment. Chase it until the cause is named, or record it openly as unexplained — and never let a green re-run stand as the explanation. The one time this was tested here, the "flaky test" was the harness lying: a contaminated run had failed a test that had nothing to do with the break, and only a written prediction that the results contradicted exposed it.
 - **An assertion inside a property test is only as good as the generator feeding it.** Before trusting one, ask whether the generated data can even contain the thing being asserted about. Prove it by breaking the code that assertion covers and watching *that* test fail, not a neighbour.
 - **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
@@ -1759,7 +1764,9 @@ commonest case: one reverse proxy, one address.
 targets.
 
 - `go test -race -coverprofile=coverage.out ./...` — every package passes.
-  `internal/api` 84,2% (was 70,2%), `internal/auth` 92,6%, `internal/config`
+  `internal/api` 84,2% (was 70,2%) — measured at this point in the phase, before
+  the endpoints and middleware below were written, so it is not comparable with
+  any figure reported after them and is not a baseline for one; `internal/auth` 92,6%, `internal/config`
   92,0%, `internal/ledger` 91,4% and untouched, `internal/store` 70,4% and
   untouched.
 - `./bin/golangci-lint run` — 0 issues. `noctx` is now excluded for `_test.go`
@@ -1834,9 +1841,12 @@ sign-out.
 > **Debt, named with its trigger.** A separate `auth_events` table is the right
 > home for anonymous attempts, and is deferred rather than forced. The moment
 > an operator needs a queryable history of attempts that have no actor, that is
-> **migration 10** — a new table with its own shape — and never a relaxation of
-> the human-origin constraint, which is what makes the rest of the audit log
-> worth reading.
+> **a migration of its own** — a new table with its own shape — and never a
+> relaxation of the human-origin constraint, which is what makes the rest of
+> the audit log worth reading. (This said "migration 10" when it was written;
+> Phase 2 took that number for something else. Pinning a number to work that
+> has no trigger date is how a note goes stale — the shape is the promise, not
+> the number.)
 
 #### A test that arranged its own answer
 
@@ -1932,7 +1942,7 @@ next phase, and they arrive behind a session middleware that already works.
 | Debt | What brings it due |
 | --- | --- |
 | Cancelling an in-flight request on revocation | the first long-lived endpoint — SSE, a long poll, anything that outlives a few milliseconds |
-| An `auth_events` table for anonymous attempts | an operator needing a queryable history of attempts that have no actor. Migration 10, never a weaker constraint |
+| An `auth_events` table for anonymous attempts | an operator needing a queryable history of attempts that have no actor. A migration of its own, never a weaker constraint |
 | Re-weighing per-account rate limiting | **M9**. The current decision is correct only because an instance holds one account, and M9 removes that |
 | Encrypting the TOTP secret at rest | a key that genuinely lives somewhere other than beside the database backup |
 | Sweeping expired sessions on a schedule | `SweepExpiredSessions` exists and nothing calls it periodically |
@@ -1952,3 +1962,241 @@ What is deferred to a *named* milestone:
 | TOTP enrolment, confirmation and backup-code endpoints. The store and the domain are complete and tested; only the HTTP surface is missing, so a second factor can be demanded but not yet configured | M2b Phase 2 |
 | Encrypting the TOTP secret at rest under a key kept away from the database. Storing it in clear is recorded as a decision, not an oversight — a key sitting in the same `.env` as the same backup protects nothing | Unscheduled |
 | Sweeping expired sessions on a schedule. `SweepExpiredSessions` exists; nothing calls it periodically | M12 |
+
+### M2b Phase 2 — decisions taken before any code
+
+Recorded ahead of the implementation, following the precedent set by *M2 split
+into M2a and M2b*: the reasoning is about what the HTTP surface is allowed to
+be, and it is worth having on record independently of how the work turns out.
+The implementation record is appended when the phase completes.
+
+#### "Full CRUD" does not apply to the ledger, and the prompt was wrong
+
+`.dev/PROMPT-MILESTONE.md` asked for *CRUD penuh* over `/transactions`. §5.3
+makes the journal append-only. Those cannot both hold, and §5.3 wins: a PUT
+that edits a posting is precisely the mutation the immutability of every domain
+type exists to make impossible, and an HTTP layer offering one would be asking
+the store for something no store method exposes.
+
+So the verbs are chosen by the accounting model rather than by REST habit:
+
+| Verb | What it does |
+| --- | --- |
+| `POST /transactions` | creates |
+| `PUT` / `PATCH` | **does not exist** on a transaction or a posting, at any path |
+| `POST /transactions/{id}/deletions` | writes a reversal with `kind=deletion` |
+| `POST /transactions/{id}/corrections` | writes a reversal with `kind=correction` |
+| `DELETE` | **does not exist** — see below |
+
+The reversal's date is required in the body and is never defaulted, because
+`ledger.Reverse` refuses to guess it and refuses for a reason: booking a
+reversal today leaves last year's report intact, booking it on the original's
+date rewrites that period, and choosing between those is an accounting decision
+(§5.4).
+
+**`DELETE /transactions/{id}` was proposed first and withdrawn**, and the
+reasoning generalises to any verb. A reversal needs an identity, a date and a
+map of posting identities, so this DELETE could never have been bodiless; the
+familiar shape of the verb was not on offer whatever we chose. What settled it
+is that a body on DELETE is *undefined* rather than merely unusual — HTTP
+clients, proxies and libraries are entitled to drop it, and several do. An
+endpoint resting on that fails by environment rather than by logic: it works in
+the test suite, works from curl, and fails behind one particular proxy with a
+request that arrives looking like a client that simply forgot its body. That is
+the most expensive failure shape available, because nothing in the error points
+at the cause.
+
+Symmetry is the second reason and the smaller one. Corrections and deletions
+are one mechanism — `Reverse` with a `Kind` — and two differently shaped doors
+into it is how the two drift apart, which is exactly why `Reverse` is one
+builder rather than two.
+
+Accounts are not covered by this. §5.3 is about the journal — postings and the
+transactions holding them — and an account is a mutable label sitting beside it,
+so `PATCH /accounts/{id}` is legitimate and exists. The first draft of this
+entry said PUT and PATCH exist nowhere "at any path", which would have
+contradicted the account decision two paragraphs below it.
+
+The prompt file was corrected in place rather than left to mislead the next
+session — the same reasoning that put `LICENSING.md` in the repository: a
+normative document only one person has read is not normative.
+
+**Accounts are the narrower case.** `name` and `closed` may be updated;
+`kind`, `parent` and `commodity` never. Postings already written depend on all
+three — an account's kind decides how every balance built from it reads — so
+changing one would invalidate answers already given. The restriction is
+enforced in `internal/store`, not in the handler: a handler that forgets to
+validate must not be able to change a kind, and the second HTTP caller of that
+method is the one who would find out.
+
+#### Disposals are supported, and only the response shape is provisional
+
+The store's `SaveDisposal` is complete and tested and has no caller outside
+tests. A write path that is finished but unreachable is a write path that rots,
+so `POST /transactions` accepts an optional list of posting identities naming
+the lines that reduce a holding, and routes to `SaveDisposal`.
+
+The two halves have different futures, so only one of them carries the label.
+
+The **request** field is not a design choice at all. `SaveDisposal` derives the
+account and the quantity from the line itself, deliberately, so the quantity
+has one home and cannot disagree with the posting. What it cannot derive is
+which lines are disposals rather than ordinary reductions — inferring that from
+"the account happens to hold lots" is exactly the inference the store declines
+to make. The field is therefore the minimum restatement of the one fact the
+store must be told, and M7 cannot make it smaller. A higher-level endpoint
+(`POST /holdings/{id}/sales`, building the transaction server-side) is additive
+if M7 wants one; this stays as the low-level door.
+
+The **response** is the provisional half. Reporting which lots a sale drew on
+means encoding `ledger.Consumption`, whose `Basis` is a `ledger.Rat` — and
+`Rat` has no `MarshalJSON`, unlike `Money`, `Date` and `Rate`. That absence is
+not an oversight to fill in passing: §4.7 makes `Rat` the exact intermediate,
+and deciding how an unrounded basis crosses the wire is deciding whether a
+client may do arithmetic on it. That is an investment-API question with no UI
+to test it against yet.
+
+So Phase 2 returns the disposal's transaction and nothing about the lots it
+consumed. `Consumptions` and `ConsumedFromLot` stay reachable only from Go.
+
+> **Trigger.** **M7** revisits this, and the change it may make is additive: a
+> consumption detail in the response, or a separate resource for it, decided
+> against a real holdings UI. `Rat`'s wire encoding is decided there, once,
+> rather than guessed here.
+
+#### Any authenticated session may read and write the whole book
+
+There is no `user_id` on `accounts` or `transactions`, and none is added here.
+Every ledger endpoint is authorised by holding a session, and by nothing
+narrower.
+
+| | |
+| --- | --- |
+| **What makes the decision correct** | an instance has at most one credentialed account, enforced by `users_at_most_one_credentialed` |
+| **What invalidates it** | the instance can hold more than one account |
+| **What brings that about** | **M9**, which adds households and invitations and drops that index |
+
+This is the **second** security decision resting on that one index. The first
+is the choice to key rate limiting on the client address rather than on the
+account, recorded under M2b Phase 1.
+
+**When M9 drops the index, two decisions fall at once, not one** — and they
+fall in different files, neither of which mentions the other. M9 must reopen
+both together: a per-account rate limiter that slows rather than blocks, *and*
+row ownership on every ledger table. Finding one and not the other leaves an
+instance that either locks a named person out of their own finances, or lets
+every member of a household read every other member's book.
+
+A decision that is right today because of one fact goes silently wrong when the
+fact changes. A fact holding up two decisions goes wrong twice, and the second
+one is the one nobody is looking for.
+
+#### Smaller decisions, settled before the code
+
+**Idempotency-Key is required on every mutation**, and its absence is a 400
+with a stable code rather than a key minted server-side. Minting one would
+produce endpoints that look idempotent while every retry writes again, which is
+worse than an endpoint that is honestly not idempotent, because nothing in the
+response says which of the two you are holding. `store.Write` requires the key
+already; this is the edge agreeing with it rather than working around it.
+
+**The cursor is keyset, opaque, and carries a hash of the filter set.**
+Changing a filter mid-pagination is refused rather than reinterpreted — the
+alternative is a page that silently answers a different question than the page
+before it.
+
+It is **not signed**, and the reason belongs where the cursor is decoded rather
+than only here: everything a cursor names is already readable by the session
+presenting it, so forging a position grants nothing that asking politely would
+not. That is a fact about *this* resource under the authorisation decision
+above, not a general claim that cursors need no integrity. A cursor that
+encoded a filter the server would otherwise impose would need signing, and the
+next person to add one must not read this as precedent.
+
+**OpenAPI 3.1 is hand-written and verified from both directions in CI.** The
+prompt asked for a spec generated from the code; in Go that means comment
+annotations, which drift from the handler beside them and report nothing when
+they do. The real requirement is *valid and matching the implementation*, and a
+two-way check enforces it better than a generator: every mounted chi route must
+appear in the document, **and** every path in the document must exist in the
+router. The second direction is the one usually left out, and it is the one
+that catches a route deleted from the code and left standing in the spec. Both
+are to be watched failing (§11).
+
+#### When an error code is allowed to exist
+
+Every `ErrorCode` is an i18n key: §9 forbids hardcoded user-facing strings, so
+the client renders from the code and never from `message`. That makes the list
+of codes a public vocabulary, and a vocabulary grows without anyone deciding to
+grow it. Left alone it becomes a second copy of the domain's error taxonomy,
+one code per way of being wrong, and it gets there in single steps that each
+look reasonable.
+
+> **Rule.** A new error code is justified only when a client acts differently
+> because of it, or when the person reading the screen must be told something
+> different. Everything else is `validation_failed` carrying `field` and
+> `details`. This binds every milestone, not only this one: the question to
+> answer before adding a code is what the caller would do differently on
+> receiving it, and "it would show a more specific message" only counts when
+> somebody can say what that message is.
+
+`message` is developer-facing English and is never displayed. `details` carries
+machine-readable specifics — amounts as strings, per §4.5 — and never
+pre-formatted prose, because prose in `details` is a user-facing string that
+went around the catalogue.
+
+#### In progress — what the HTTP idempotency layer found
+
+The phase's implementation record is written at the end. This one finding is
+here early because it changed the schema, and a migration whose reason lives
+only in a commit message is a migration the next session has to reverse
+engineer.
+
+**`response_body` was `jsonb`, and jsonb is not a byte store.** The column
+exists to be handed back exactly as the first attempt sent it, and that is the
+one thing jsonb does not do. Measured against PostgreSQL 16, storing
+`{"z": 1,  "a"  :  "two", "a": "three"}` reads back as `{"a": "three", "z": 1}`
+— keys reordered, insignificant whitespace dropped, the duplicate key
+discarded. All three are documented behaviour and all three break the only
+promise the column makes.
+
+It matters little for a client that parses JSON and a great deal for one that
+does not: a caller comparing a replay against what it received the first time,
+hashing it for a cache, or checking it against a signature is looking at two
+different answers to one request. **Migration 10** changes the type to `json`,
+which stores the text as given and still refuses a document that is not JSON.
+Nothing indexes this column, nothing queries into it, and no JSON operator is
+ever applied to it, so the decomposition jsonb performs was paid for and never
+used.
+
+What is worth keeping is how it surfaced. The HTTP layer's comment already
+claimed a replay repeats the original bytes, and every guard above it passed —
+because they ran against a fake that stores what it is given. The claim was
+only ever as true as the column, and nothing in the API package could tell.
+The store test that found it was written to assert the thing the layer above
+was assuming, with a deliberately awkward document that a well-behaved one
+would have hidden.
+
+> **Rule.** When a layer's comment makes a promise that a lower layer actually
+> keeps, the guard belongs at the lower layer, and it needs input chosen to
+> break the promise rather than input that looks realistic. A fake cannot
+> falsify a claim about storage — it will faithfully return whatever it was
+> handed, which is precisely what the real thing does not do.
+
+Two smaller findings, both about tests rather than code. A test asserted
+`errors.Is(err, ErrInvalidWrite) || ledger.ValidateID("not-a-uuid") != nil`,
+whose second half is true on every run, so the assertion could not fail
+whatever the code did — the §11 shape of a test arranging its own answer,
+found by reading rather than by running. And the new store tests were the only
+ones in that package marked `t.Parallel()`, which is not a speed-up there:
+`open(t)` truncates the shared container, so they were deleting one another's
+fixtures. Eight tests failed for that reason and exactly one of them had a
+real defect behind it.
+
+#### Deliberately deferred
+
+| Deferred | Lands in |
+| --- | --- |
+| Consumption detail in any HTTP response, and with it the wire encoding of `ledger.Rat` | M7 |
+| Row ownership on ledger tables, and re-weighing per-account rate limiting — together, when the index falls | M9 |
+| `/lots`, balances and reports as endpoints. Balances have five store methods and no consumer; what a report should say is M6's question | M6 |
