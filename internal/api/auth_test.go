@@ -5,6 +5,7 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -132,6 +133,43 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
+// newHarnessWithLedger is newHarness with the ledger routes mounted.
+//
+// The auth side stays fake and the ledger side is real, which is deliberate:
+// the round-trip tests are about what comes out of the database, and
+// authentication is proved against its own store elsewhere. What the
+// arrangement does show incidentally is that the ledger routes really are
+// behind requireAuthenticated rather than merely intended to be.
+func newHarnessWithLedger(t *testing.T, ledgerDeps *api.LedgerDeps) *harness {
+	t.Helper()
+
+	h := newHarness(t)
+	h.deps.Ledger = ledgerDeps
+	h.router = api.NewRouter(h.deps)
+	return h
+}
+
+// apiTestID builds a canonical lowercase UUIDv7 from a label, so identities
+// are stable across runs and readable in a failure message. Identities always
+// come from outside the domain, and a test is just another outside.
+func apiTestID(label string) string {
+	sum := sha256.Sum256([]byte(label))
+	var b [16]byte
+	copy(b[:], sum[:16])
+	b[6] = (b[6] & 0x0f) | 0x70 // version 7
+	b[8] = (b[8] & 0x3f) | 0x80 // RFC 4122 variant
+
+	const hexDigits = "0123456789abcdef"
+	out := make([]byte, 0, 36)
+	for i, c := range b {
+		if i == 4 || i == 6 || i == 8 || i == 10 {
+			out = append(out, '-')
+		}
+		out = append(out, hexDigits[c>>4], hexDigits[c&0x0f])
+	}
+	return string(out)
+}
+
 func (h *harness) clock() time.Time {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -171,6 +209,20 @@ func (r response) errorCode(t *testing.T) string {
 	}
 	require.NoError(t, json.Unmarshal([]byte(r.body), &parsed), "body was %q", r.body)
 	return parsed.Error.Code
+}
+
+// errorField reads which parameter or field a failure names. A refusal that
+// does not say what was wrong leaves the caller guessing between everything
+// they sent.
+func (r response) errorField(t *testing.T) string {
+	t.Helper()
+	var parsed struct {
+		Error struct {
+			Field string `json:"field"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.body), &parsed), "body was %q", r.body)
+	return parsed.Error.Field
 }
 
 func (r response) sessionCookie() string {

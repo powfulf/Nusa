@@ -84,6 +84,23 @@ func NewRouter(d Deps) http.Handler {
 		d.Logger.Warn("authentication routes not mounted: dependencies incomplete")
 	}
 
+	if d.Auth.ready() && d.Ledger.ready() {
+		// Every ledger route sits behind requireAuthenticated, so a session
+		// that has passed the password step but not its second factor reaches
+		// none of it.
+		r.Route("/api/v1", func(r chi.Router) {
+			r.Use(requireAuthenticated(d))
+
+			r.Get("/commodities", handleListCommodities(d))
+			r.Get("/accounts", handleListAccounts(d))
+			r.Get("/accounts/{id}", handleGetAccount(d))
+			r.Get("/transactions", handleListTransactions(d))
+			r.Get("/transactions/{id}", handleGetTransaction(d))
+		})
+	} else {
+		d.Logger.Warn("ledger routes not mounted: dependencies incomplete")
+	}
+
 	if static, ok := staticHandler(d.WebDir); ok {
 		r.NotFound(static)
 	} else {

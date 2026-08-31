@@ -68,6 +68,25 @@ const (
 	// request. The caller must mint a new key, not retry this one.
 	CodeIdempotencyKeyReused ErrorCode = "idempotency_key_reused"
 
+	// CodeNotFound reports a resource that is not there. One code for every
+	// kind: a client acts the same way whichever it was, and the kind travels
+	// in details for a person reading a log.
+	CodeNotFound ErrorCode = "not_found"
+
+	// CodeInvalidCursor reports a cursor this server cannot read — corrupt,
+	// truncated, or from an encoding it no longer uses. The caller restarts
+	// the listing from the beginning.
+	CodeInvalidCursor ErrorCode = "invalid_cursor"
+
+	// CodeCursorFilterChanged reports a cursor presented with filters other
+	// than the ones it was issued under.
+	//
+	// It is separate from CodeInvalidCursor because the person reading the
+	// screen must be told something different: their filter change did take
+	// effect, and the listing restarted because of it rather than because
+	// anything went wrong.
+	CodeCursorFilterChanged ErrorCode = "cursor_filter_changed"
+
 	// CodeInternal reports a fault on this side. The response carries nothing
 	// about it; the log carries everything.
 	CodeInternal ErrorCode = "internal"

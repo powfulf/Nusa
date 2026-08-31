@@ -192,6 +192,13 @@ func serve(cfg *config.Config, logger *slog.Logger) error {
 				Now:   time.Now,
 				NewID: api.NewUUIDv7,
 			},
+			// The ledger routes. Both fields are the same *store.Store; they
+			// are separate on the Deps so that a test can stand something else
+			// in for either half without pretending to be the other.
+			Ledger: &api.LedgerDeps{
+				Idempotency: db,
+				Journal:     db,
+			},
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

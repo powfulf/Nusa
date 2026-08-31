@@ -48,13 +48,20 @@ type IdempotencyStore interface {
 }
 
 // LedgerDeps carries what the ledger endpoints need.
-//
-// It holds only the idempotency store today because that is the only piece the
-// mutation path needs before any mutation route exists. The rest of Phase 2
-// fills it in as the endpoints arrive.
 type LedgerDeps struct {
 	// Idempotency records and replays mutation responses. Required.
 	Idempotency IdempotencyStore
+
+	// Journal reads the book. Required.
+	Journal JournalReader
+}
+
+// ready reports whether the ledger routes can be mounted at all.
+//
+// An incomplete set means the routes are not mounted, which is a louder
+// failure than mounting them and dereferencing nil on somebody's first read.
+func (l *LedgerDeps) ready() bool {
+	return l != nil && l.Idempotency != nil && l.Journal != nil
 }
 
 // idempotencyKeyFrom returns the key requireIdempotencyKey validated.
