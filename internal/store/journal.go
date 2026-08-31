@@ -112,6 +112,87 @@ func accountKind(name string) (ledger.AccountKind, error) {
 	return ledger.AccountUnknown, fmt.Errorf("%w: unknown account kind %q", ErrCorrupt, name)
 }
 
+// LoadAccount reads one account.
+func (s *Store) LoadAccount(ctx context.Context, id ledger.AccountID) (ledger.Account, error) {
+	key, err := uuidFrom(string(id))
+	if err != nil {
+		return ledger.Account{}, err
+	}
+
+	row, err := s.GetAccount(ctx, key)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ledger.Account{}, fmt.Errorf("%w: account %s", ErrNotFound, id)
+		}
+		return ledger.Account{}, fmt.Errorf("get account %s: %w", id, err)
+	}
+
+	kind, err := accountKind(row.Kind)
+	if err != nil {
+		return ledger.Account{}, err
+	}
+	account, err := ledger.NewAccount(ledger.AccountSpec{
+		ID:        ledger.AccountID(uuidTo(row.ID)),
+		Parent:    ledger.AccountID(uuidTo(row.ParentID)),
+		Kind:      kind,
+		Name:      row.Name,
+		Commodity: ledger.CommodityCode(textTo(row.CommodityCode)),
+		Closed:    row.Closed,
+	})
+	if err != nil {
+		return ledger.Account{}, fmt.Errorf("%w: account %s: %w", ErrCorrupt, id, err)
+	}
+	return account, nil
+}
+
+// LoadCommodities reads every commodity this instance knows.
+//
+// Core seeds the currencies and cryptocurrencies whose scales are properties
+// of the thing itself; a Country Pack adds the rest, because an exchange's
+// share scale is a country-specific fact (§1). Both arrive through this.
+func (s *Store) LoadCommodities(ctx context.Context) ([]ledger.Commodity, error) {
+	rows, err := s.ListCommodities(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list commodities: %w", err)
+	}
+
+	out := make([]ledger.Commodity, 0, len(rows))
+	for _, row := range rows {
+		kind, err := commodityKind(row.Kind)
+		if err != nil {
+			return nil, err
+		}
+		// The scale column is smallint and the domain takes a uint8. A stored
+		// value outside that range is a row the domain could never have
+		// produced, so NewCommodity refusing it is the right outcome and the
+		// conversion must not wrap silently on the way.
+		if row.Scale < 0 || row.Scale > 255 {
+			return nil, fmt.Errorf("%w: commodity %s has scale %d", ErrCorrupt, row.Code, row.Scale)
+		}
+		commodity, err := ledger.NewCommodity(
+			ledger.CommodityCode(row.Code), kind, uint8(row.Scale))
+		if err != nil {
+			return nil, fmt.Errorf("%w: commodity %s: %w", ErrCorrupt, row.Code, err)
+		}
+		out = append(out, commodity)
+	}
+	return out, nil
+}
+
+// commodityKind reads the stored name back, refusing one the domain cannot
+// name rather than coercing it to the nearest valid value.
+func commodityKind(name string) (ledger.CommodityKind, error) {
+	for _, k := range []ledger.CommodityKind{
+		ledger.KindCurrency, ledger.KindEquity, ledger.KindFund,
+		ledger.KindCrypto, ledger.KindMetal,
+	} {
+		if k.String() == name {
+			return k, nil
+		}
+	}
+	return ledger.KindUnknown, fmt.Errorf("%w: unknown commodity kind %q", ErrCorrupt, name)
+}
+
 // SaveTransaction writes a transaction, its postings and any lots it opens, in
 // one database transaction.
 //
