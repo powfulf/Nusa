@@ -288,6 +288,14 @@ satisfied by editing the check.
   So: **wherever a fake stands in for an external system, write down which properties of that system the code above it relies on, and test those properties against the real thing.** Not against the fake, which will agree with any claim made about it. "It returns what it was given" is an assumption until it has been proved on real storage, and the input that proves it has to be chosen to break the promise — an awkward document, not a realistic one, because a well-behaved value passes under either implementation and distinguishes nothing.
 
   What found it was not breaking a guard. Every break behaved as predicted. It was refusing to take the phrase "byte-for-byte" in our own comment as given, and going to look at what the column does. **A claim we write about our own code is a candidate for testing, not a premise** — and the lower the layer that actually keeps the promise, the further the comment asserting it tends to sit from anything that checks it.
+- **An index that makes a query fast can hide a clause that carries the rule.** A clause the query plan happens to satisfy cannot be falsified by any test running in an environment that always has that index: pull the clause out and everything stays green, and that is not evidence it was unnecessary. The instance here is the `ORDER BY txn_date, id` behind keyset pagination. Removing the identity left the whole suite passing, because the query is served by an Index Only Scan on `transactions_txn_date_idx` — which *is* `(txn_date, id)` — so the rows arrive in identity order whether or not the ORDER BY asks for it. On a bare table where the planner chose a sort instead, the two orders genuinely differed. The evidence came from `EXPLAIN`, not from a red test.
+
+  Distinguish this from the `FOR UPDATE` in the backup-code path, which looked the same and was not: there the clause genuinely did nothing, removal changed no guarantee, and it was removed. Here the clause does something, and only the plan is standing in for it today.
+
+  So: **a removal that produces no red test has not answered whether the clause carries weight. Find out what is satisfying it now.** If the answer is "the query plan, incidentally", the clause stays and is labelled — not deleted, and not treated as guarded either.
+
+  This is the third of a kind, and they are one category rather than three incidents: the `len(trusted) == 0` branch in `api.ClientIP`, this ORDER BY tie-break, and the length prefix in the cursor filter digest. All three are correct, none is defended by any test, and each would survive deletion in silence. **The label they carry says four things**: that the line is correct, what satisfies it today, that no test will catch its removal, and what would make it matter — so the next reader neither deletes it believing it does nothing nor trusts a guard that is not there.
+
 - **"Flaky" is a symptom, never a diagnosis.** A failure that will not reproduce is a fact needing an explanation, not noise to be waved away as the environment. Chase it until the cause is named, or record it openly as unexplained — and never let a green re-run stand as the explanation. The one time this was tested here, the "flaky test" was the harness lying: a contaminated run had failed a test that had nothing to do with the break, and only a written prediction that the results contradicted exposed it.
 - **An assertion inside a property test is only as good as the generator feeding it.** Before trusting one, ask whether the generated data can even contain the thing being asserted about. Prove it by breaking the code that assertion covers and watching *that* test fail, not a neighbour.
 - **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
@@ -2192,6 +2200,67 @@ ones in that package marked `t.Parallel()`, which is not a speed-up there:
 `open(t)` truncates the shared container, so they were deleting one another's
 fixtures. Eight tests failed for that reason and exactly one of them had a
 real defect behind it.
+
+#### Measuring one change when the suite is noisy
+
+The store suite went from about 80 seconds to about 120 with keyset pagination
+added, and §11 says a large change in how long a suite takes is a signal in
+either direction. Chasing it produced a technique worth keeping.
+
+The new tests accounted for 6,6 seconds, so they were not it. The real suspect
+was `LoadTransaction`, which now reads its postings through
+`ListPostingsByTransactions` with a one-element array rather than through a
+singular query with `= $1` — and it is called thousands of times by the
+round-trip property test.
+
+**The predicate was measured on its own, with the Go signature held fixed.**
+The SQL changed from `transaction_id = ANY($1::uuid[])` to
+`transaction_id = ($1::uuid[])[1]`: still an array parameter, so sqlc generates
+exactly the same function, and nothing above the query moves. `ANY` against
+equality came out at 10,87s versus 10,87s, with 11,30s on a repeat of the
+first — no measurable difference.
+
+That fixed signature is the whole point. Changing the shape of a function while
+timing it measures two things at once and attributes both to whichever one you
+were thinking about.
+
+**The baseline is noisy, and here are the numbers so the next session does not
+have to rediscover them.** `TestBalanceLatencyStaysWithinItsBudget` loads
+500.000 postings and takes about 98 seconds by itself; the whole store package
+measured 92,9 and 96,8 seconds on two consecutive runs without `-race`, and
+118–121 with it. A suite that appears to have moved by thirty seconds has told
+you nothing yet.
+
+#### Environment: backslashes do not survive the heredoc path here
+
+Writing Go or SQL through a shell heredoc in this environment loses one level
+of backslash escaping, and it does so silently. A `\x1f` intended as the
+four-character escape sequence arrives at the interpreter as a single 0x1F
+byte and is written into the source as a raw control character. The file still
+compiles, the tests still pass, and the byte is invisible in every diff.
+
+Six of them reached `internal/api/cursor_test.go` this way before a byte scan
+found them. Nothing was functionally wrong — a raw 0x1F and the escape for it
+are the same value to Go — but a control character no reader can see is one an
+editor, a linter or a copy-paste will eventually eat, and the failure then
+looks like the test being wrong.
+
+**How to avoid it.** Write source files with the editor tool rather than
+through a heredoc whenever the content contains a backslash. When a script has
+to produce one, build it rather than type it — `chr(92)` in Python — which is
+also why this file's own patch scripts do. And after any bulk edit, scan for
+control bytes:
+
+```python
+bad = [b for b in set(open(path, 'rb').read()) if b < 9 or 13 < b < 32]
+```
+
+The same class of problem has now appeared three times in this project in
+different costumes: a UTF-16 `.gitignore` that git could not read, CRLF working
+files that gofmt rejected while `git status` showed nothing, and now this.
+> **Rule.** On this machine, treat any text passing through a shell as
+> encoding-unsafe until it has been read back and checked as bytes. The
+> checks are cheap; every instance of this has cost an hour.
 
 #### Deliberately deferred
 
