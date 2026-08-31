@@ -203,8 +203,17 @@ func writeAwkwardBook(t *testing.T, s *store.Store) awkwardBook {
 func signedIn(t *testing.T, s *store.Store) (*harness, string) {
 	t.Helper()
 
-	h := newHarnessWithLedger(t, &api.LedgerDeps{Idempotency: s, Journal: s})
-	h.registered()
+	h := newHarnessWithLedger(t, &api.LedgerDeps{Idempotency: s, Journal: s, Writer: s})
+	userID := h.registered()
+
+	// The fake auth store and the real ledger store have to agree on who the
+	// actor is. Every write records one, and both idempotency_keys.actor_id
+	// and audit_log.actor_id are foreign keys into users — so a session
+	// belonging to somebody the ledger has never heard of cannot write
+	// anything. That is the real system's constraint showing through the
+	// fixture rather than an artefact of mixing the two.
+	require.NoError(t, s.SaveUser(context.Background(), userID))
+
 	res := h.login(testEmail, testPassword)
 	require.Equal(t, http.StatusOK, res.code, res.body)
 	cookie := res.sessionCookie()
@@ -215,7 +224,7 @@ func signedIn(t *testing.T, s *store.Store) (*harness, string) {
 func TestTheLedgerRoutesRefuseAnUnauthenticatedRequest(t *testing.T) {
 	s := realStore(t)
 	writeAwkwardBook(t, s)
-	h := newHarnessWithLedger(t, &api.LedgerDeps{Idempotency: s, Journal: s})
+	h := newHarnessWithLedger(t, &api.LedgerDeps{Idempotency: s, Journal: s, Writer: s})
 
 	for _, path := range []string{
 		"/api/v1/commodities", "/api/v1/accounts", "/api/v1/transactions",

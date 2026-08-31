@@ -198,6 +198,7 @@ func serve(cfg *config.Config, logger *slog.Logger) error {
 			Ledger: &api.LedgerDeps{
 				Idempotency: db,
 				Journal:     db,
+				Writer:      db,
 			},
 		}),
 		ReadHeaderTimeout: 10 * time.Second,

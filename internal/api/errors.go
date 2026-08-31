@@ -87,6 +87,29 @@ const (
 	// anything went wrong.
 	CodeCursorFilterChanged ErrorCode = "cursor_filter_changed"
 
+	// CodeValidationFailed reports a refusal the ledger made.
+	//
+	// One code for every domain rule, per the rule in §13: a client acts the
+	// same way for all of them, which is to show the message against the field
+	// and let the person fix it. What separates them is `field` and the
+	// machine-readable `reason` in `details` — a client that wants to say
+	// something more specific switches on that rather than on a code per way
+	// of being wrong, which is how an error vocabulary becomes a second copy
+	// of the domain's own taxonomy.
+	CodeValidationFailed ErrorCode = "validation_failed"
+
+	// CodeFieldImmutable reports a field that cannot be changed once the thing
+	// exists — an account's kind, or a transaction's reversal link.
+	//
+	// Separate from CodeValidationFailed because the caller acts differently:
+	// nothing they can put in that field will work, so the fix is to stop
+	// sending it rather than to correct it.
+	CodeFieldImmutable ErrorCode = "field_immutable"
+
+	// CodeAlreadyReversed reports a second attempt to reverse one entry. The
+	// caller must read the book again before deciding what to do.
+	CodeAlreadyReversed ErrorCode = "already_reversed"
+
 	// CodeInternal reports a fault on this side. The response carries nothing
 	// about it; the log carries everything.
 	CodeInternal ErrorCode = "internal"

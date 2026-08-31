@@ -10,6 +10,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/GaffaQ/Nusa/internal/ledger"
 )
 
 // Deps are everything the HTTP layer needs from the outside. Passing them
@@ -96,6 +98,27 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/accounts/{id}", handleGetAccount(d))
 			r.Get("/transactions", handleListTransactions(d))
 			r.Get("/transactions/{id}", handleGetTransaction(d))
+
+			// Every mutation, and nothing else, requires the key. A GET that
+			// demanded one would be asking a caller to name a retry of
+			// something that wrote nothing.
+			r.Group(func(r chi.Router) {
+				r.Use(requireIdempotencyKey(d))
+
+				r.Post("/accounts", handleCreateAccount(d))
+				r.Patch("/accounts/{id}", handlePatchAccount(d))
+				r.Post("/transactions", handleCreateTransaction(d))
+
+				// A correction and a deletion are one mechanism with two
+				// names, so they are two routes into one handler rather than
+				// two handlers. There is no DELETE: a reversal needs an
+				// identity, a date and a map of posting identities, so it
+				// could never have been bodiless, and a body on DELETE is
+				// undefined rather than merely unusual — an endpoint resting
+				// on it fails by environment rather than by logic.
+				r.Post("/transactions/{id}/corrections", handleReversal(d, ledger.Correction))
+				r.Post("/transactions/{id}/deletions", handleReversal(d, ledger.Deletion))
+			})
 		})
 	} else {
 		d.Logger.Warn("ledger routes not mounted: dependencies incomplete")

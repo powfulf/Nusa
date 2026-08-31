@@ -54,6 +54,9 @@ type LedgerDeps struct {
 
 	// Journal reads the book. Required.
 	Journal JournalReader
+
+	// Writer writes to it. Required.
+	Writer JournalWriter
 }
 
 // ready reports whether the ledger routes can be mounted at all.
@@ -61,7 +64,7 @@ type LedgerDeps struct {
 // An incomplete set means the routes are not mounted, which is a louder
 // failure than mounting them and dereferencing nil on somebody's first read.
 func (l *LedgerDeps) ready() bool {
-	return l != nil && l.Idempotency != nil && l.Journal != nil
+	return l != nil && l.Idempotency != nil && l.Journal != nil && l.Writer != nil
 }
 
 // idempotencyKeyFrom returns the key requireIdempotencyKey validated.

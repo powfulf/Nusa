@@ -211,6 +211,19 @@ func (r response) errorCode(t *testing.T) string {
 	return parsed.Error.Code
 }
 
+// errorDetail reads one machine-readable specific out of a failure. It is what
+// separates a validation_failed a client can act on from one it cannot.
+func (r response) errorDetail(t *testing.T, key string) string {
+	t.Helper()
+	var parsed struct {
+		Error struct {
+			Details map[string]string `json:"details"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.body), &parsed), "body was %q", r.body)
+	return parsed.Error.Details[key]
+}
+
 // errorField reads which parameter or field a failure names. A refusal that
 // does not say what was wrong leaves the caller guessing between everything
 // they sent.
@@ -245,6 +258,28 @@ func (h *harness) do(method, path string, body any, cookie string) response {
 	}
 	r := httptest.NewRequest(method, path, reader)
 	r.RemoteAddr = "203.0.113.10:44321"
+	if cookie != "" {
+		r.AddCookie(&http.Cookie{Name: "nusa_session", Value: cookie})
+	}
+
+	w := httptest.NewRecorder()
+	h.router.ServeHTTP(w, r)
+	return response{code: w.Code, body: w.Body.String(), cookies: w.Result().Cookies(), header: w.Header()}
+}
+
+// doKeyed is do with an Idempotency-Key, which every mutation route requires.
+func (h *harness) doKeyed(method, path, key string, body any, cookie string) response {
+	h.t.Helper()
+
+	var reader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		require.NoError(h.t, err)
+		reader = bytes.NewReader(encoded)
+	}
+	r := httptest.NewRequest(method, path, reader)
+	r.RemoteAddr = "203.0.113.10:44321"
+	r.Header.Set("Idempotency-Key", key)
 	if cookie != "" {
 		r.AddCookie(&http.Cookie{Name: "nusa_session", Value: cookie})
 	}
