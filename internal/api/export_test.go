@@ -50,3 +50,9 @@ func TransactionFiltersForTest(from, to ledger.Date) transactionFilters {
 // DigestForTest exposes the filter fingerprint so a test can build a token
 // with a correct digest and a deliberately wrong field elsewhere.
 func DigestForTest(f transactionFilters) string { return f.digest() }
+
+// SecondFactorRoutesForTest is the table the enumerating guard walks. Exposing
+// it rather than repeating it in the test is the point: a route added to the
+// router and not to the table is a route the guard reports, and a route added
+// to both is covered without anybody writing a test for it.
+var SecondFactorRoutesForTest = secondFactorRoutes

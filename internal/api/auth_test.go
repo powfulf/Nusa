@@ -211,6 +211,18 @@ func (r response) errorCode(t *testing.T) string {
 	return parsed.Error.Code
 }
 
+// sessionStatus reads the step a sign-in reached. A sign-in that needs a
+// second factor is not an error — it answers 200 and names the next step — so
+// reading errorCode for it finds nothing whether or not the factor is on.
+func (r response) sessionStatus(t *testing.T) string {
+	t.Helper()
+	var parsed struct {
+		Status string `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(r.body), &parsed), "body was %q", r.body)
+	return parsed.Status
+}
+
 // errorDetail reads one machine-readable specific out of a failure. It is what
 // separates a validation_failed a client can act on from one it cannot.
 func (r response) errorDetail(t *testing.T, key string) string {
@@ -562,7 +574,14 @@ func TestABackupCodeCompletesTheSecondFactor(t *testing.T) {
 
 	codes, err := auth.NewBackupCodes()
 	require.NoError(t, err)
-	require.NoError(t, h.factors.ReplaceBackupCodes(context.Background(), userID, codes, h.clock()))
+	// Hashes go in, plaintext comes back at the door. This seeded plaintext
+	// until phase 2, against a fake that compared plaintext — so it passed
+	// while proving nothing about the path the real store takes.
+	hashes := make([]string, 0, len(codes))
+	for _, code := range codes {
+		hashes = append(hashes, auth.HashBackupCode(code))
+	}
+	require.NoError(t, h.factors.ReplaceBackupCodes(context.Background(), userID, hashes, h.clock()))
 
 	pending := h.login(testEmail, testPassword).sessionCookie()
 	require.NotEmpty(t, pending)

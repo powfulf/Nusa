@@ -319,26 +319,35 @@ func (f *fakeSecondFactors) DisableTOTP(_ context.Context, userID string) error 
 	return nil
 }
 
-func (f *fakeSecondFactors) ReplaceBackupCodes(_ context.Context, userID string, codes []string, _ time.Time) error {
+// ReplaceBackupCodes takes HASHES, exactly as the real store does. The
+// distinction is the whole contract: a stored plaintext backup code is a
+// password kept in clear, and a fake that accepted one would let a handler
+// store plaintext and still pass.
+//
+// This fake used to keep whatever it was handed and compare it as plaintext,
+// which made an existing test hollow — it seeded plaintext, submitted
+// plaintext, and proved nothing about a path where the two differ (§11).
+func (f *fakeSecondFactors) ReplaceBackupCodes(_ context.Context, userID string, hashes []string, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.backup[userID] = append([]string(nil), codes...)
+	f.backup[userID] = append([]string(nil), hashes...)
 	return nil
 }
 
+// ConsumeBackupCode takes a PLAINTEXT code and matches it against the stored
+// hashes, through the same function the real store uses. Normalisation —
+// case, spaces, the grouping hyphens — lives in there, so this fake cannot
+// disagree with the real one about what counts as the same code.
 func (f *fakeSecondFactors) ConsumeBackupCode(_ context.Context, userID, code string, _ time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	normalise := func(s string) string {
-		return strings.ToUpper(strings.NewReplacer("-", "", " ", "").Replace(strings.TrimSpace(s)))
+
+	index, err := auth.MatchBackupCode(f.backup[userID], code)
+	if err != nil {
+		return err
 	}
-	for i, held := range f.backup[userID] {
-		if normalise(held) == normalise(code) {
-			f.backup[userID] = append(f.backup[userID][:i], f.backup[userID][i+1:]...)
-			return nil
-		}
-	}
-	return auth.ErrInvalidBackupCode
+	f.backup[userID] = append(f.backup[userID][:index], f.backup[userID][index+1:]...)
+	return nil
 }
 
 func (f *fakeSecondFactors) UnusedBackupCodeCount(_ context.Context, userID string) (int, error) {

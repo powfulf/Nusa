@@ -80,6 +80,25 @@ func NewRouter(d Deps) http.Handler {
 			r.Group(func(r chi.Router) {
 				r.Use(requireAuthenticated(d))
 				r.Get("/session", handleCurrentSession(d))
+
+				// Setting up a second factor. Beginning an enrolment and
+				// confirming it need only the session — there is nothing to
+				// present until one exists.
+				r.Post("/totp", handleBeginTOTPEnrolment(d))
+				r.Post("/totp/confirm", handleConfirmTOTPEnrolment(d))
+				r.Get("/backup-codes", handleCountBackupCodes(d))
+
+				// Changing or removing one needs a current code as well. The
+				// requirement lives here, once, rather than inside each
+				// handler: secondFactorRoutes is the table a guard walks, and
+				// a route added below without being added there is what that
+				// guard is for.
+				r.Group(func(r chi.Router) {
+					r.Use(requireSecondFactorCode(d))
+
+					r.Delete("/totp", handleDisableTOTP(d))
+					r.Post("/backup-codes", handleReissueBackupCodes(d))
+				})
 			})
 		})
 	} else {

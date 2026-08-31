@@ -110,6 +110,12 @@ const (
 	// caller must read the book again before deciding what to do.
 	CodeAlreadyReversed ErrorCode = "already_reversed"
 
+	// CodeSecondFactorAlreadySet reports an enrolment where one is already
+	// confirmed. Separate from a validation failure because the caller acts
+	// differently: they must remove the existing factor first, and nothing
+	// they change about this request will help.
+	CodeSecondFactorAlreadySet ErrorCode = "second_factor_already_set"
+
 	// CodeInternal reports a fault on this side. The response carries nothing
 	// about it; the log carries everything.
 	CodeInternal ErrorCode = "internal"
@@ -155,3 +161,8 @@ func writeInternalError(w http.ResponseWriter, logger *slog.Logger, what string,
 // front of it. It never travels to a caller — it exists so the log line says
 // which mistake was made rather than reporting a bare internal error.
 var errNoIdempotencyKey = errors.New("no idempotency key in request context")
+
+// errNoSession marks a handler reached without requireAuthenticated in front
+// of it. Like errNoIdempotencyKey it never travels to a caller; it exists so
+// the log names the mistake.
+var errNoSession = errors.New("no session in request context")

@@ -304,6 +304,12 @@ satisfied by editing the check.
 
   So: **check the claim against a list of fields, not against a green run.** And because a list held in somebody's head does not survive them, **every round-trip property test carries an explicit inventory of what its generator varies, in its own file, field by field** — including the fields deliberately not varied and why. A field added to a domain type will not add itself to a generator, and nothing will go red when it does not; the inventory is the only thing standing between that and a suite quietly promising more than it tests.
 
+- **A rule that can be enforced by removing the ability to break it beats a check plus a test.** A check can be deleted, and its test can turn out to be hollow; a parameter that does not exist cannot be worked around. `UpdateAccountLabel` takes an id, a name and a closed flag, and has no parameter for kind, parent or commodity — so a handler that forgets to validate has nothing to pass, and there is no break to write because the change cannot be expressed. That is a different category of guarding from everything else here: not "no test catches this" but "there is nothing to catch".
+
+  Reach for it when the shape of a type or a signature can carry the rule: a constructor that validates so an invalid value cannot exist, an unexported field so nothing can mutate it, a missing parameter so a change cannot be requested. Every one of those is already load-bearing in `internal/ledger`, and this is the same move applied to a repository method.
+
+  **The limit is what makes it safe.** It only applies to a rule with no legitimate exception, ever. Removing the ability to do something that turns out to be needed means rebuilding the path later, under pressure, and usually with the guarantee weakened to fit — which is worse than the check would have been. So the question to answer first is not "is this rule true today" but "is there any case in which it should not be". Where the answer is unclear, a check with a guard that has been watched failing is the honest choice.
+
 - **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
 - **A concurrency test that does not force the interleaving is a test of the scheduler's mood.** Arrange the collision — hold the contended rows from the test itself — rather than starting goroutines and hoping.
 - **A large change in how long a suite takes is a signal, and it must be chased in either direction.** A suite that suddenly got *faster* while still passing is the more suspicious of the two, precisely because nobody investigates good news: a slowdown gets a ticket, a speed-up gets a shrug. Absent a change that explains it, a suite that got much faster has usually stopped testing something, and it announces this by going green sooner.
@@ -1960,7 +1966,7 @@ next phase, and they arrive behind a session middleware that already works.
 | Re-weighing per-account rate limiting | **M9**. The current decision is correct only because an instance holds one account, and M9 removes that |
 | Encrypting the TOTP secret at rest | a key that genuinely lives somewhere other than beside the database backup |
 | Sweeping expired sessions on a schedule | `SweepExpiredSessions` exists and nothing calls it periodically |
-| TOTP enrolment and backup-code endpoints | a person can be *asked* for a second factor but cannot yet set one up over HTTP; the store and the domain are complete |
+| ~~TOTP enrolment and backup-code endpoints~~ | **Settled in M2b Phase 2, step 5.** A person can now enrol, confirm, reissue backup codes and disable a factor over HTTP |
 
 #### Deliberately deferred
 
@@ -1973,7 +1979,7 @@ What is deferred to a *named* milestone:
 | Deferred | Lands in |
 | --- | --- |
 | The REST API over the ledger: `/api/v1/accounts`, `/transactions`, `/commodities`, cursor pagination, idempotency through HTTP, OpenAPI 3.1 generated from the code and validated in CI | M2b Phase 2 |
-| TOTP enrolment, confirmation and backup-code endpoints. The store and the domain are complete and tested; only the HTTP surface is missing, so a second factor can be demanded but not yet configured | M2b Phase 2 |
+| ~~TOTP enrolment, confirmation and backup-code endpoints~~ | **Done** — M2b Phase 2, step 5 |
 | Encrypting the TOTP secret at rest under a key kept away from the database. Storing it in clear is recorded as a decision, not an oversight — a key sitting in the same `.env` as the same backup protects nothing | Unscheduled |
 | Sweeping expired sessions on a schedule. `SweepExpiredSessions` exists; nothing calls it periodically | M12 |
 
@@ -2327,6 +2333,82 @@ What stopped it being diagnosable is worth more than the guess: **the break
 harness captured only the names of failing tests and discarded their output**,
 so there was nothing to read afterwards. A harness that records what failed
 but not why can tell you something went wrong and never what.
+
+#### A guard that read half the surface it was guarding
+
+The disposal endpoint promises to report nothing about the lots a sale
+consumed, because encoding a `ledger.Rat` is M7's decision. The guard asserted
+that, and a deliberate break that leaked the consumption list through a
+response header left it green: the guard read only the body.
+
+This is the same shape as the latency budget that covered `Balance` and
+`BalanceAsOf` and not `SubtreeBalance`, and it is worth naming as a pair. In
+both, the coverage list was written before the guard — which is the rule — and
+the list itself was incomplete. Deciding coverage first stops a guard being
+audited against itself; it does not stop the list from missing something.
+
+> **Rule.** A response has three parts: the status, the headers and the body. A
+> guard that promises "this does not leak X" has to read all three. A leak
+> through a header is a leak, and it is the part nobody looks at because the
+> body is where the payload is.
+
+#### An unexplained failure, kept where it can be found again
+
+Recorded as its own entry rather than as a line inside a longer note, because
+a single unexplained result buried in a phase log is one nobody will connect
+to the second occurrence.
+
+| | |
+| --- | --- |
+| **What** | `TestTheLedgerRoutesRefuseAnUnauthenticatedRequest` failed once, on a tree that had just been restored after a deliberate break |
+| **When** | M2b Phase 2, step 3, during the generator audit — a cycle that had started six PostgreSQL containers within a few minutes |
+| **Tried** | three re-runs of the same command, all clean; file digests confirmed the restore was complete; the single test re-run alone, clean |
+| **Suspected** | resource contention between the two containers this repository now starts — `internal/store` in its `TestMain`, `internal/api` lazily — on a machine where Docker Desktop has stopped by itself four times |
+| **Not** | flakiness. A green re-run is not an explanation (§11) |
+| **What would settle it** | the failure text. The harness that produced it recorded which tests failed and not why, so there was nothing to read. That is fixed: the harness now keeps the first unexpected result's output |
+| **What to do if it recurs** | capture the assertion message and the response body before re-running anything. If it names an authentication failure the container is not implicated; if it names a database error, it is |
+
+#### The second factor can now be configured, and the rule that governs it
+
+Phase 1 left a person able to be *asked* for a second factor and unable to set
+one up. That debt is settled: enrolment, confirmation, reissuing backup codes
+and disabling all exist over HTTP.
+
+**Changing a second factor requires presenting one**, wherever there is one to
+present. Disabling TOTP and reissuing backup codes both demand a current code;
+beginning an enrolment does not, because at that point there is nothing to
+present. Without the rule a stolen session could quietly remove the control
+that exists precisely because a password can be stolen — and "it is already
+behind requireAuthenticated" sounds like enough right up until it is not.
+
+The requirement lives in a **route table** rather than in each handler, and the
+guard **walks that table** instead of naming endpoints. A route added later
+that forgets the factor does not need somebody to remember to write a test for
+it. A second guard compares the table against the router in both directions,
+because a table that drifts out of step with what is served is an enumerating
+guard covering something other than the thing.
+
+Two findings, both in the tests rather than in the code.
+
+**A fake disagreed with the real store about what a backup code is.**
+`ReplaceBackupCodes` takes hashes and `ConsumeBackupCode` takes a plaintext
+code; the fake kept whatever it was handed and compared it as plaintext. An
+existing test seeded plaintext, submitted plaintext, and passed — against a
+contract the real store does not have. The fake now stores hashes and matches
+through `auth.MatchBackupCode`, the same function the store uses, so the two
+cannot disagree about what counts as the same code. This is the §11 rule about
+fakes, in its second costume: not more obedient this time, just different.
+
+**A guard passed for the wrong reason.** "Reissuing invalidates the old codes"
+asserted that an old code is refused afterwards — which is equally true when no
+codes were ever stored. A break that skipped storage entirely left it green.
+It now proves both sets existed before comparing them, which is the same
+discipline as asserting the size of a comparison before making it.
+
+One coverage gap was found by a break rather than by reading: an account whose
+enrolment was begun and never confirmed had no test, and removing the branch
+that lets it through turned an ordinary request into a 500 with the whole suite
+still green. It has a guard now.
 
 #### Deliberately deferred
 
