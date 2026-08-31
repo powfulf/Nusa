@@ -20,3 +20,15 @@ WITH RECURSIVE subtree(id) AS (
     SELECT a.id FROM accounts a JOIN subtree s ON a.parent_id = s.id
 )
 SELECT s.id FROM subtree s ORDER BY s.id;
+
+-- name: UpdateAccountLabel :execrows
+-- The only update an account accepts, and the statement says which fields
+-- those are rather than leaving it to a caller to remember.
+--
+-- kind, parent_id and commodity_code are absent on purpose. Postings already
+-- written depend on all three — an account's kind decides how every balance
+-- built from it reads — so changing one would invalidate answers already
+-- given. A handler that forgets to validate cannot change them through this,
+-- because there is no parameter to change them with. That is a stronger
+-- guarantee than a check, which is only as good as the next caller's memory.
+UPDATE accounts SET name = $2, closed = $3 WHERE id = $1;

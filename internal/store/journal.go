@@ -145,6 +145,38 @@ func (s *Store) LoadAccount(ctx context.Context, id ledger.AccountID) (ledger.Ac
 	return account, nil
 }
 
+// UpdateAccount changes an account's label.
+//
+// Only the name and the closed flag: kind, parent and commodity never change,
+// because postings already written depend on all three. The restriction is in
+// the signature rather than in a check, so a handler that forgets to validate
+// has nothing to pass. See the query for the reasoning in full.
+//
+// It returns the account as it now stands, so a caller rendering a response
+// describes what was stored rather than what it believed it sent.
+func (s *Store) UpdateAccount(
+	ctx context.Context, id ledger.AccountID, name string, closed bool,
+) (ledger.Account, error) {
+	if err := nulNotAllowed(fmt.Sprintf("account %s name", id), name); err != nil {
+		return ledger.Account{}, err
+	}
+	key, err := uuidFrom(string(id))
+	if err != nil {
+		return ledger.Account{}, err
+	}
+
+	rows, err := s.UpdateAccountLabel(ctx, UpdateAccountLabelParams{
+		ID: key, Name: name, Closed: closed,
+	})
+	if err != nil {
+		return ledger.Account{}, fmt.Errorf("update account %s: %w", id, err)
+	}
+	if rows == 0 {
+		return ledger.Account{}, fmt.Errorf("%w: account %s", ErrNotFound, id)
+	}
+	return s.LoadAccount(ctx, id)
+}
+
 // LoadCommodities reads every commodity this instance knows.
 //
 // Core seeds the currencies and cryptocurrencies whose scales are properties

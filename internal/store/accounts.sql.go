@@ -119,3 +119,30 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 	}
 	return items, nil
 }
+
+const updateAccountLabel = `-- name: UpdateAccountLabel :execrows
+UPDATE accounts SET name = $2, closed = $3 WHERE id = $1
+`
+
+type UpdateAccountLabelParams struct {
+	ID     pgtype.UUID
+	Name   string
+	Closed bool
+}
+
+// The only update an account accepts, and the statement says which fields
+// those are rather than leaving it to a caller to remember.
+//
+// kind, parent_id and commodity_code are absent on purpose. Postings already
+// written depend on all three — an account's kind decides how every balance
+// built from it reads — so changing one would invalidate answers already
+// given. A handler that forgets to validate cannot change them through this,
+// because there is no parameter to change them with. That is a stronger
+// guarantee than a check, which is only as good as the next caller's memory.
+func (q *Queries) UpdateAccountLabel(ctx context.Context, arg UpdateAccountLabelParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateAccountLabel, arg.ID, arg.Name, arg.Closed)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}

@@ -281,6 +281,16 @@ type Querier interface {
 	// should not have to be a write: the caller decides how often this is worth
 	// doing, and an idle-timeout policy is what will decide it.
 	TouchSession(ctx context.Context, arg TouchSessionParams) error
+	// The only update an account accepts, and the statement says which fields
+	// those are rather than leaving it to a caller to remember.
+	//
+	// kind, parent_id and commodity_code are absent on purpose. Postings already
+	// written depend on all three — an account's kind decides how every balance
+	// built from it reads — so changing one would invalidate answers already
+	// given. A handler that forgets to validate cannot change them through this,
+	// because there is no parameter to change them with. That is a stronger
+	// guarantee than a check, which is only as good as the next caller's memory.
+	UpdateAccountLabel(ctx context.Context, arg UpdateAccountLabelParams) (int64, error)
 	UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHashParams) (int64, error)
 	// Country Packs register their own securities and funds. A redefinition that
 	// disagrees with what is already stored is refused rather than silently
