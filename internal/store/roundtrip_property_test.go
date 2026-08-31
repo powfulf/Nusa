@@ -218,9 +218,22 @@ func drawTransaction(rt *rapid.T, b propertyBooks, index int) ledger.Transaction
 		}
 	}
 
+	// OccurredAt and Timezone were absent from this generator until phase 2,
+	// so requireSameTransaction compared two zero values and the suite's
+	// promise that everything written comes back exactly did not cover them.
+	// The nanosecond component is drawn deliberately: it is the part the
+	// column cannot hold, and a generator that only produced whole
+	// microseconds would assert nothing about the truncation (§11).
+	occurred := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC).
+		Add(time.Duration(rapid.Int64Range(0, 86_400_000_000_000).Draw(rt, label+":occurred")))
+
 	txn, err := ledger.NewTransaction(ledger.TransactionSpec{
-		ID:       ledger.TransactionID(testID(fmt.Sprintf("prop:txn:%d", index))),
-		Date:     drawDate(rt, label+":date"),
+		ID:         ledger.TransactionID(testID(fmt.Sprintf("prop:txn:%d", index))),
+		Date:       drawDate(rt, label+":date"),
+		OccurredAt: occurred,
+		Timezone: rapid.SampledFrom([]string{
+			"", "UTC", "Asia/Jakarta", "America/Sao_Paulo",
+		}).Draw(rt, label+":timezone"),
 		Payee:    drawText(rt, label+":payee", 30),
 		Memo:     drawText(rt, label+":memo", 30),
 		Postings: postings,

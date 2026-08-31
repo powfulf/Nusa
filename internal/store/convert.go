@@ -218,7 +218,34 @@ func timestampFrom(t time.Time) pgtype.Timestamptz {
 	if t.IsZero() {
 		return pgtype.Timestamptz{}
 	}
-	return pgtype.Timestamptz{Time: t, Valid: true}
+	// timestamptz holds microseconds; time.Time holds nanoseconds. The
+	// truncation happens either way — the question is only whether it happens
+	// here, where it is visible and testable, or inside the driver on the way
+	// to a column, where a value comes back three digits shorter than it went
+	// in and nothing anywhere says why.
+	//
+	// It is a truncation rather than a refusal, unlike NUL in text, and the
+	// two are not the same case. A payee that silently loses a character no
+	// longer matches the statement it was copied from; OccurredAt is display
+	// only by the domain's own documentation, and no reader of a timestamp is
+	// served by sub-microsecond precision. Refusing it would mean every caller
+	// holding a time.Now() had to truncate first, which is this line moved
+	// outward and repeated.
+	//
+	// THIS LINE IS NOT FALSIFIABLE BY ANY TEST HERE, and that is recorded
+	// rather than left to be discovered by deleting it. Removing the Truncate
+	// leaves everything green, because the driver and the column perform the
+	// same truncation a moment later — measured, not assumed.
+	//
+	// It is the fourth of a kind in this repository (§11), and the weakest of
+	// them, so the distinction is worth being exact about: losing the ORDER BY
+	// tie-break in the paginated query would be a correctness bug the moment
+	// the plan changed, whereas losing this would only move the truncation one
+	// layer down, where it is correct and invisible. This line buys legibility
+	// rather than behaviour. It stays because a lossy conversion that happens
+	// somewhere nobody named is how a round trip comes to be described as
+	// exact.
+	return pgtype.Timestamptz{Time: t.Truncate(time.Microsecond), Valid: true}
 }
 
 // timestampTo reads it back, returning the zero time for NULL.

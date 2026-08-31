@@ -121,6 +121,19 @@ func requireSameTransaction(rt *rapid.T, want, got ledger.Transaction) {
 	if want.Memo() != got.Memo() {
 		rt.Fatalf("%s memo: wrote %q, read %q", want.ID(), want.Memo(), got.Memo())
 	}
+	if want.Timezone() != got.Timezone() {
+		rt.Fatalf("%s timezone: wrote %q, read %q", want.ID(), want.Timezone(), got.Timezone())
+	}
+	// The one field this round trip does not preserve exactly, stated as
+	// precisely as it is true rather than skipped. timestamptz holds
+	// microseconds; the store truncates on the way in so that the loss happens
+	// at one named place, and this is the assertion that pins it there. If it
+	// ever starts failing, either the column changed or something stopped
+	// truncating — and either is worth knowing.
+	if wantAt := want.OccurredAt().Truncate(time.Microsecond); !wantAt.Equal(got.OccurredAt()) {
+		rt.Fatalf("%s occurred_at: wrote %s, read %s (expected microsecond truncation)",
+			want.ID(), wantAt.Format(time.RFC3339Nano), got.OccurredAt().Format(time.RFC3339Nano))
+	}
 
 	wantPostings, gotPostings := want.Postings(), got.Postings()
 	if len(wantPostings) != len(gotPostings) {
