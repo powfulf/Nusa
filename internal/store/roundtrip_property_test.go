@@ -59,6 +59,61 @@ func (b propertyBooks) accountsFor(code ledger.CommodityCode) []ledger.AccountID
 	return out
 }
 
+// WHAT THIS GENERATOR VARIES, FIELD BY FIELD.
+//
+// The list is here because a property test proves nothing about a field its
+// generator never fills: a value that is always zero is compared perfectly and
+// says nothing (§11). Green is not the check — this list is, read against the
+// domain types.
+//
+// A field added to ledger.Transaction, Posting, Account or Lot will not add
+// itself here, and nothing will go red when it does not. Whoever adds one
+// updates this list and the generator together, or the suite quietly starts
+// promising more than it tests.
+//
+//	Transaction  ID          varied, one per case
+//	             Date        varied — drawDate
+//	             OccurredAt  varied, with a nanosecond component
+//	             Timezone    varied, including empty
+//	             Payee       varied — drawText
+//	             Memo        varied — drawText
+//	             Postings    varied in count, commodity and account
+//	             Reverses    NOT VARIED — see below
+//	             ReversalKind NOT VARIED — see below
+//
+//	Posting      ID          varied, one per line
+//	             Account     varied — sampled from the seeded accounts
+//	             Amount      varied — sign and magnitude, up to amountBytes
+//	             Rate        varied, and absent about half the time
+//	             Memo        varied, and absent about half the time
+//	             Reverses    NOT VARIED — see below
+//
+//	Account      ID          fixed set, seeded once per case
+//	             Parent      one child, so a subtree has something beneath it
+//	             Kind        all five, so every stored name is read back
+//	             Name        fixed strings
+//	             Commodity   both restricted and unrestricted
+//	             Closed      both, so the column is not write-only
+//
+//	Lot          ID          varied, one per case
+//	             Account     follows the opening posting
+//	             OpenedBy    follows the opening posting
+//	             OpenedOn    follows the transaction's date
+//	             Quantity    varied
+//	             Cost        varied
+//	             Remaining   varied, usually partly consumed
+//
+// The two NOT VARIED entries are deliberate and are not a gap left open by
+// accident: this generator produces no reversals, so requireSameTransaction
+// makes no assertion about reversal links — an assertion over data that cannot
+// contain the thing is the trap §11 describes. Reversals are covered by their
+// own store test, against values built for the purpose.
+//
+// Account.Closed and the liability and income kinds were absent until phase 2,
+// and their absence was found by audit rather than by a red test: writing
+// every account as open, and dropping liability from the kind mapping, both
+// left the whole suite green.
+
 func seedPropertyBooks(t *testing.T, s *store.Store) propertyBooks {
 	t.Helper()
 	ctx := context.Background()
@@ -73,6 +128,20 @@ func seedPropertyBooks(t *testing.T, s *store.Store) propertyBooks {
 		{ID: ledger.AccountID(testID("prop:any:2")), Kind: ledger.AccountAsset, Name: "Mixed two"},
 		{ID: ledger.AccountID(testID("prop:any:3")), Kind: ledger.AccountExpense, Name: "Mixed spend"},
 		{ID: ledger.AccountID(testID("prop:equity")), Kind: ledger.AccountEquity, Name: "Trading"},
+		// Liability and income exist so that every name accountKind maps is
+		// written and read back at least once. Until phase 2 only asset,
+		// expense and equity ever were, so dropping liability from that
+		// mapping left the suite green.
+		{ID: ledger.AccountID(testID("prop:liability")), Kind: ledger.AccountLiability, Name: "Owed"},
+		{ID: ledger.AccountID(testID("prop:income")), Kind: ledger.AccountIncome, Name: "Earned"},
+		// A closed account, because closed is a column like any other and
+		// nothing was checking that it survived the round trip. It keeps its
+		// history and its balance; it is only hidden from pickers, so a
+		// posting may still land in it here.
+		{
+			ID: ledger.AccountID(testID("prop:closed")), Kind: ledger.AccountAsset,
+			Name: "Closed one", Closed: true,
+		},
 	}
 	// One account restricted to each commodity, so the commodity-acceptance
 	// path is exercised too and not only the permissive one.

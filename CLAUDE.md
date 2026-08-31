@@ -298,6 +298,12 @@ satisfied by editing the check.
 
 - **"Flaky" is a symptom, never a diagnosis.** A failure that will not reproduce is a fact needing an explanation, not noise to be waved away as the environment. Chase it until the cause is named, or record it openly as unexplained — and never let a green re-run stand as the explanation. The one time this was tested here, the "flaky test" was the harness lying: a contaminated run had failed a test that had nothing to do with the break, and only a written prediction that the results contradicted exposed it.
 - **An assertion inside a property test is only as good as the generator feeding it.** Before trusting one, ask whether the generated data can even contain the thing being asserted about. Prove it by breaking the code that assertion covers and watching *that* test fail, not a neighbour.
+- **A property test only tests what its generator varies. A field it never fills is compared perfectly and proves nothing.** This is a different failure from a generator whose cases are rejected early, and it is quieter: there, the suite announces itself by getting faster. Here nothing changes at all. Every case writes, reads and compares; two of the comparisons are between zero and zero, and the run is green, the timing is normal, and the check count is unchanged.
+
+  The instance: `TestPropertyEverythingWrittenComesBackExactly` promised that everything written comes back exactly, and its generator had never set `OccurredAt` or `Timezone`. An audit of the rest found two more — `Account.Closed` was written by nothing but `false`, and two of the five account kinds were never stored at all, so dropping `liability` from the mapping that reads them back left the whole suite green.
+
+  So: **check the claim against a list of fields, not against a green run.** And because a list held in somebody's head does not survive them, **every round-trip property test carries an explicit inventory of what its generator varies, in its own file, field by field** — including the fields deliberately not varied and why. A field added to a domain type will not add itself to a generator, and nothing will go red when it does not; the inventory is the only thing standing between that and a suite quietly promising more than it tests.
+
 - **Isolate the field a guard is about.** If the case under test differs from the control in three ways, the guard is a test of none of them.
 - **A concurrency test that does not force the interleaving is a test of the scheduler's mood.** Arrange the collision — hold the contended rows from the test itself — rather than starting goroutines and hoping.
 - **A large change in how long a suite takes is a signal, and it must be chased in either direction.** A suite that suddenly got *faster* while still passing is the more suspicious of the two, precisely because nobody investigates good news: a slowdown gets a ticket, a speed-up gets a shrug. Absent a change that explains it, a suite that got much faster has usually stopped testing something, and it announces this by going green sooner.
@@ -2261,6 +2267,66 @@ files that gofmt rejected while `git status` showed nothing, and now this.
 > **Rule.** On this machine, treat any text passing through a shell as
 > encoding-unsafe until it has been read back and checked as bytes. The
 > checks are cheap; every instance of this has cost an hour.
+
+#### Storage facts worth knowing before reading the code
+
+**`timestamptz` holds microseconds; `time.Time` holds nanoseconds.** An instant
+written with nanosecond precision reads back three digits shorter. This is
+PostgreSQL's documented resolution rather than a defect, and it is recorded
+here because the next reader to meet the `Truncate` call in
+`internal/store/convert.go` will ask why it is there.
+
+It is there so the loss happens at one named place instead of inside the
+driver, where a value would come back shorter than it went in with nothing
+saying why. The call is not falsifiable — removing it leaves everything green,
+because the driver truncates identically a moment later — so it is labelled as
+buying legibility rather than behaviour, and the label says exactly that, for
+whoever eventually decides to delete it.
+
+`OccurredAt` is display-only by the domain's own documentation, which is why
+this is a truncation rather than a refusal. NUL in text is refused because a
+payee that loses a character stops matching the statement it was copied from;
+nobody reading a timestamp is served by sub-microsecond precision, and refusing
+it would only mean every caller holding a `time.Now()` truncated first.
+
+#### Coverage is per package, and does not follow a guard across a boundary
+
+`internal/store` went from 72,3% to 70,8% during phase 2, and nothing
+regressed. `LoadAccount` and `LoadCommodities` were added to the store while
+their guards live in `internal/api`, where the round trip they exist for is
+proved end to end against PostgreSQL — a stronger test than a store unit test,
+and one the store's own coverage figure cannot see.
+
+Both are genuinely guarded: breaking them turns api tests red, which was
+watched rather than assumed. But `go test -coverprofile` attributes a
+statement to the package whose *tests* executed it, so a method exercised only
+from another package reads as uncovered.
+
+> **Rule.** A coverage number that falls because of attribution is not a
+> regression, and the two are indistinguishable from the trend alone. Before
+> treating a drop as one, find out which statements stopped being covered and
+> by whose tests they were covered before. `go tool cover -func` names them in
+> a few seconds; a wrong conclusion drawn from the trend outlives that by a
+> milestone.
+
+#### One failure that did not reproduce
+
+While auditing the generator, a break-and-restore cycle ended with
+`TestTheLedgerRoutesRefuseAnUnauthenticatedRequest` failing on the restored
+tree. Three subsequent runs of the same command were clean, and the file
+digests confirmed the restore was complete.
+
+It is recorded as **unexplained** rather than as flakiness, per §11: a green
+re-run is not an explanation. The suspected cause is resource contention
+between two PostgreSQL containers — `internal/store` starts one and
+`internal/api` now starts another, and that cycle had started six of them
+within a few minutes on a machine where Docker Desktop has stopped by itself
+four times already.
+
+What stopped it being diagnosable is worth more than the guess: **the break
+harness captured only the names of failing tests and discarded their output**,
+so there was nothing to read afterwards. A harness that records what failed
+but not why can tell you something went wrong and never what.
 
 #### Deliberately deferred
 

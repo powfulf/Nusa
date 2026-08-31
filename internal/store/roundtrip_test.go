@@ -39,6 +39,14 @@ func TestPropertyEverythingWrittenComesBackExactly(t *testing.T) {
 	s := open(t)
 	b := seedPropertyBooks(t, s)
 
+	// The accounts are seeded once and read back once, outside the property
+	// loop: they do not vary per case, so drawing them again would be a
+	// hundred repetitions of one comparison. Reading them at all is the new
+	// part — until phase 2 nothing anywhere read an account back and compared
+	// it, so Closed was a write-only column and two of the five account kinds
+	// were never stored. Both gaps were found by audit, not by a red test.
+	requireAccountsRoundTrip(t, s, b.accounts)
+
 	rapid.Check(t, func(rt *rapid.T) {
 		resetLedger(rt, s)
 
@@ -367,4 +375,50 @@ func TestTheWidestAmountTheColumnHoldsSurvives(t *testing.T) {
 	require.Equal(t, huge, back.Postings()[0].Amount().Amount().String(),
 		"39 digits came back with every one of them intact")
 	require.Equal(t, "-"+huge, back.Postings()[1].Amount().Amount().String())
+}
+
+// requireAccountsRoundTrip reads every seeded account back and compares it
+// field by field.
+//
+// Field by field rather than with a single equality, because ledger.Account
+// has unexported fields and a struct comparison would silently start passing
+// if one were added — which is the same failure this whole audit was about.
+func requireAccountsRoundTrip(t *testing.T, s *store.Store, written []ledger.Account) {
+	t.Helper()
+
+	back, err := s.LoadAccounts(context.Background())
+	require.NoError(t, err)
+	require.Len(t, back, len(written), "an account was lost between writing and reading")
+
+	byID := map[ledger.AccountID]ledger.Account{}
+	for _, a := range back {
+		byID[a.ID()] = a
+	}
+
+	var closed, kinds int
+	seenKinds := map[ledger.AccountKind]bool{}
+	for _, want := range written {
+		got, ok := byID[want.ID()]
+		require.True(t, ok, "account %s did not come back", want.ID())
+
+		require.Equal(t, want.Parent(), got.Parent(), "account %s parent", want.ID())
+		require.Equal(t, want.Kind(), got.Kind(), "account %s kind", want.ID())
+		require.Equal(t, want.Name(), got.Name(), "account %s name", want.ID())
+		require.Equal(t, want.Commodity(), got.Commodity(), "account %s commodity", want.ID())
+		require.Equal(t, want.IsClosed(), got.IsClosed(), "account %s closed", want.ID())
+
+		if want.IsClosed() {
+			closed++
+		}
+		if !seenKinds[want.Kind()] {
+			seenKinds[want.Kind()] = true
+			kinds++
+		}
+	}
+
+	// The fixture is asserted, not assumed. A comparison whose input lost its
+	// awkward cases passes for the wrong reason, and nothing about a green run
+	// distinguishes the two (§11).
+	require.Positive(t, closed, "the fixture no longer contains a closed account")
+	require.Equal(t, 5, kinds, "the fixture no longer covers every account kind")
 }
