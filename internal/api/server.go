@@ -58,6 +58,7 @@ func NewRouter(d Deps) http.Handler {
 	r.Use(middleware.Recoverer)
 
 	r.Get("/healthz", handleHealth(d))
+	r.Get("/openapi.json", handleOpenAPI())
 
 	if d.Auth.ready() {
 		r.Route("/api/v1/auth", func(r chi.Router) {

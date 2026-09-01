@@ -56,3 +56,10 @@ func DigestForTest(f transactionFilters) string { return f.digest() }
 // router and not to the table is a route the guard reports, and a route added
 // to both is covered without anybody writing a test for it.
 var SecondFactorRoutesForTest = secondFactorRoutes
+
+// The OpenAPI document and the code inventory, for the guards that compare
+// them with the router and with the constant block.
+var (
+	OpenAPIDocumentForTest = openAPIDocument
+	AllErrorCodesForTest   = allErrorCodes
+)

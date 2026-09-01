@@ -1,0 +1,630 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Nusa API",
+    "version": "0.1.0",
+    "description": "The HTTP surface of a self-hostable personal finance ledger.\n\nThis document is hand-written and checked against the router in both directions: every mounted route appears here, and every path here exists in the router. A generator reading annotations beside each handler would drift from them silently; the two-way check cannot.\n\nWhat it does NOT check is listed in the description of each place where that is true. An unguarded claim is labelled rather than left to look covered.",
+    "license": { "name": "AGPL-3.0-only" }
+  },
+  "servers": [{ "url": "/", "description": "The instance itself. Nusa is single-origin: the API and the built frontend are served by one process, so there is no CORS configuration anywhere." }],
+  "tags": [
+    { "name": "health", "description": "Liveness and schema version." },
+    { "name": "auth", "description": "Registration, sign-in, sessions." },
+    { "name": "second factor", "description": "TOTP enrolment and backup codes." },
+    { "name": "ledger", "description": "Accounts, transactions and commodities." }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Whether the instance is serving and at which schema version",
+        "description": "Unauthenticated, and deliberately says status rather than diagnosis: a connection error routinely carries an internal hostname or username, and those go to the log instead. A failed check omits schema_version entirely rather than sending zero, so a consumer cannot read \"unknown\" as \"version 0\".",
+        "security": [],
+        "responses": {
+          "200": { "description": "Serving.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } },
+          "503": { "description": "The database did not answer.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } } }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "tags": ["health"],
+        "summary": "This document",
+        "security": [],
+        "responses": { "200": { "description": "The specification.", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Create the instance's account",
+        "description": "The first person to reach a fresh instance may register; afterwards registration is closed until invitations arrive in M9. Registering does not sign anybody in: the password was chosen rather than presented, so nothing has tested it yet.",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credentials" } } } },
+        "responses": {
+          "201": { "description": "Created.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisteredUser" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "409": { "description": "Registration is closed, or that address is taken. One code for both: distinguishing them tells an anonymous caller whether somebody already uses this instance.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Sign in with an address and a password",
+        "description": "Answers 200 with a session whose status names the next step. A sign-in that needs a second factor is not an error: it sets a cookie that may only reach /second-factor and /logout until a code completes it.",
+        "security": [],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credentials" } } } },
+        "responses": {
+          "200": { "description": "Signed in, or awaiting a second factor.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/InvalidCredentials" },
+          "429": { "description": "Too many failed attempts from this address. Carries Retry-After.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/second-factor": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Complete a sign-in with a one-time or backup code",
+        "description": "Presented with the pending session's cookie. Completing rotates the session token: a session that kept its cookie across the step that raises its privilege is a session fixation.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Code" } } } },
+        "responses": {
+          "200": { "description": "Authenticated.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/InvalidCredentials" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "End the current session",
+        "description": "Revokes rather than forgets. A deleted row cannot tell \"revoked\" from \"never existed\", and the first of those is something a person's own session list is entitled to show.",
+        "responses": {
+          "204": { "description": "Ended." },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "tags": ["auth"],
+        "summary": "Who this session belongs to",
+        "responses": {
+          "200": { "description": "The session.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+
+    "/api/v1/auth/totp": {
+      "post": {
+        "tags": ["second factor"],
+        "summary": "Begin a TOTP enrolment",
+        "description": "Mints a secret and shows it ONCE. There is no endpoint that reads it back: the column holds it so codes can be checked, not so it can be handed out again. An enrolment begun and never confirmed is not a second factor, so this cannot switch two-factor on — only offer it.\n\nNo code is required here, because at this point there is none to present.",
+        "responses": {
+          "201": { "description": "Enrolment started. The secret is in this response and nowhere else, ever again.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BeginEnrolment" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "409": { "description": "A confirmed factor already exists; remove it first.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      },
+      "delete": {
+        "tags": ["second factor"],
+        "summary": "Remove a confirmed second factor",
+        "description": "Requires a current one-time or backup code as well as the session. Without that a stolen session could quietly remove the control that exists precisely because a password can be stolen.\n\nA backup code is accepted in place of a one-time code, because somebody whose authenticator is lost is exactly who needs this.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Code" } } } },
+        "responses": {
+          "204": { "description": "Removed." },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "No session, no code, or a code that does not match.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/totp/confirm": {
+      "post": {
+        "tags": ["second factor"],
+        "summary": "Finish enrolment by proving a code",
+        "description": "The code proves the person can produce one from the secret they were shown, which is the only thing that separates an enrolment from a stored string. Confirming issues the first set of backup codes, shown once.\n\nThe code presented here is spent: it cannot then be used to sign in.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Code" } } } },
+        "responses": {
+          "201": { "description": "Confirmed. The backup codes are in this response and are never readable again.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackupCodes" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/InvalidCredentials" },
+          "404": { "description": "No enrolment to confirm.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Already confirmed.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/auth/backup-codes": {
+      "get": {
+        "tags": ["second factor"],
+        "summary": "How many backup codes are unused",
+        "description": "A count and nothing else. A list of backup codes readable from a live session is a second password that never expires.",
+        "responses": {
+          "200": { "description": "The count.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackupCodeCount" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      },
+      "post": {
+        "tags": ["second factor"],
+        "summary": "Issue a new set of backup codes",
+        "description": "Requires a current code where a confirmed factor exists. The previous set is discarded entirely, spent codes included: somebody reissuing has usually decided the old list is compromised, and keeping the unspent half of a compromised list is keeping the problem.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Code" } } } },
+        "responses": {
+          "201": { "description": "Issued, and shown once.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackupCodes" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "description": "No session, no code where one is required, or a code that does not match.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+
+    "/api/v1/commodities": {
+      "get": {
+        "tags": ["ledger"],
+        "summary": "Every commodity this instance knows",
+        "description": "UNPAGINATED. next_cursor is ALWAYS null here and this endpoint accepts no cursor or limit parameter. Commodities are reference data — core seeds a few dozen and a Country Pack adds a country's worth — so the whole set is the honest unit to read. The envelope is the same as the paginated endpoints' so a client needs no special case, and so paginating this later is not a breaking change.",
+        "responses": {
+          "200": { "description": "All of them.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommodityList" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/accounts": {
+      "get": {
+        "tags": ["ledger"],
+        "summary": "The whole account tree",
+        "description": "UNPAGINATED, for the same reason the repository gives: building a tree needs every ancestor of every account in it, and a tree is tens to low hundreds of rows. next_cursor is ALWAYS null and no cursor or limit parameter is accepted.",
+        "responses": {
+          "200": { "description": "Every account.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountList" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      },
+      "post": {
+        "tags": ["ledger"],
+        "summary": "Create an account",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewAccount" } } } },
+        "responses": {
+          "201": { "description": "Created.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "422": { "$ref": "#/components/responses/ValidationFailed" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/accounts/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/PathID" }],
+      "get": {
+        "tags": ["ledger"],
+        "summary": "One account",
+        "responses": {
+          "200": { "description": "The account.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      },
+      "patch": {
+        "tags": ["ledger"],
+        "summary": "Change an account's label",
+        "description": "name and closed only. Sending kind, parent_id or commodity is REFUSED with field_immutable rather than ignored: postings already written depend on all three, and a client that sends one and receives 200 believes it took effect.\n\nThis is the only PATCH in the API, and there is no PUT anywhere. A transaction and a posting are append-only (§5.3): a correction and a deletion are new transactions rather than edits.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountLabel" } } } },
+        "responses": {
+          "200": { "description": "Updated, as it now stands.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Account" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationFailed" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/transactions": {
+      "get": {
+        "tags": ["ledger"],
+        "summary": "One page of the journal",
+        "description": "Keyset pagination, not offset. What it guarantees, stated as narrowly as it is true: every transaction that existed when the walk began is returned exactly once, and none twice. It is not a snapshot — a transaction written mid-walk appears if it sorts after the current position and does not if it sorts before it.\n\nThe cursor is opaque and carries a hash of the filters it was produced under. Presenting it with different filters is refused rather than reinterpreted, because a page answering a different question than the one before it looks perfectly ordinary.",
+        "parameters": [
+          { "name": "from", "in": "query", "description": "Earliest civil date, counted.", "schema": { "$ref": "#/components/schemas/Date" } },
+          { "name": "to", "in": "query", "description": "Latest civil date, counted.", "schema": { "$ref": "#/components/schemas/Date" } },
+          { "name": "limit", "in": "query", "description": "Page size. Refused rather than reduced when above the maximum: a caller that asked for a thousand and received two hundred, with nothing saying so, believes it holds the whole set.", "schema": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 } },
+          { "name": "cursor", "in": "query", "description": "Where the previous page stopped. Opaque: pass it back, never read it.", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "A page.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TransactionList" } } } },
+          "400": { "description": "An unreadable parameter, or a cursor that cannot be used with these filters.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      },
+      "post": {
+        "tags": ["ledger"],
+        "summary": "Write a transaction",
+        "description": "Creates. There is no verb that edits one: §5.3 makes the journal append-only, so a correction and a deletion are new transactions that answer this one.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewTransaction" } } } },
+        "responses": {
+          "201": { "description": "Written.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Transaction" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "409": { "$ref": "#/components/responses/IdempotencyConflict" },
+          "422": { "$ref": "#/components/responses/ValidationFailed" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/transactions/{id}": {
+      "parameters": [{ "$ref": "#/components/parameters/PathID" }],
+      "get": {
+        "tags": ["ledger"],
+        "summary": "One transaction with its lines",
+        "responses": {
+          "200": { "description": "The transaction.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Transaction" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/transactions/{id}/corrections": {
+      "parameters": [{ "$ref": "#/components/parameters/PathID" }],
+      "post": {
+        "tags": ["ledger"],
+        "summary": "Correct a transaction by reversing it",
+        "description": "Writes a new transaction whose lines answer the original's one for one, with every amount negated and every rate carried across verbatim. A reversal priced at today's rate would fail to cancel the thing it reverses by however far the rate had moved, which is a fabricated gain nobody booked.\n\nThe date is REQUIRED and is never defaulted. Booking a reversal today leaves last year's report intact; booking it on the original's date rewrites that period. Choosing between those is an accounting decision, and the domain refuses to guess.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Reversal" } } } },
+        "responses": {
+          "201": { "description": "The correcting transaction.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Transaction" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Already reversed, or the idempotency key was used for a different request.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationFailed" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    },
+    "/api/v1/transactions/{id}/deletions": {
+      "parameters": [{ "$ref": "#/components/parameters/PathID" }],
+      "post": {
+        "tags": ["ledger"],
+        "summary": "Delete a transaction by tombstoning it",
+        "description": "The same mechanism as a correction with a different kind, which is why it is a POST subresource rather than a DELETE. A reversal needs an identity, a date and a map of posting identities, so it could never have been bodiless — and a body on DELETE is undefined rather than merely unusual, so an endpoint resting on it fails by environment rather than by logic.\n\nNothing is removed. The original stays readable and says what it always said.",
+        "parameters": [{ "$ref": "#/components/parameters/IdempotencyKey" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Reversal" } } } },
+        "responses": {
+          "201": { "description": "The tombstone.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Transaction" } } } },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Already reversed, or the idempotency key was used for a different request.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationFailed" },
+          "500": { "$ref": "#/components/responses/Internal" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-nusa_session",
+        "description": "A server-side session, revocable. No JWT. The cookie is HttpOnly, Secure and SameSite=Lax, and carries the __Host- prefix in production so that a subdomain cannot set one for the parent. In development the prefix is absent because it requires Secure, so the name is nusa_session there."
+      }
+    },
+    "parameters": {
+      "PathID": { "name": "id", "in": "path", "required": true, "description": "A canonical lowercase UUIDv7.", "schema": { "$ref": "#/components/schemas/ID" } },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Required on every mutation, and never minted by the server. Minting one would produce an endpoint that looks idempotent while every retry writes again — worse than an endpoint that is honestly not idempotent, because nothing in the response says which one you are holding.\n\nA replay returns the first attempt's status and body byte for byte. The same key with a different request is refused as a conflict: the caller believes it is retrying something it is not.",
+        "schema": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[\\x20-\\x7E]+$" }
+      }
+    },
+    "responses": {
+      "BadRequest": { "description": "The request could not be read.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthenticated": { "description": "No usable session.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "InvalidCredentials": { "description": "One answer for every credential failure — no such account, wrong password, wrong code, spent backup code. Distinguishing them would tell an anonymous caller which addresses are registered.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "No such thing. One code for every kind; the kind travels in details.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "IdempotencyConflict": { "description": "This key was already used for a different request.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ValidationFailed": { "description": "The ledger refused it. One code for every domain rule, because a client acts the same way for all of them; what separates them is field and the machine-readable reason in details.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Internal": { "description": "A fault on this side. The response carries nothing about it; the log carries everything.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "ID": { "type": "string", "format": "uuid", "description": "A canonical lowercase UUIDv7, supplied by the caller. Unusual for REST and deliberate: nothing here mints an identity for something that can be pointed at, so a retry carries the same one and is recognisable as the same write.", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$" },
+
+      "Money": {
+        "type": "object",
+        "description": "An amount and what it is denominated in, always together. The amount is a STRING of the commodity's smallest units — JavaScript numbers lose precision above 2^53, and a balance that is wrong by one unit is indistinguishable from theft a year later. Scale lives on the commodity, never here.",
+        "required": ["amount", "commodity"],
+        "additionalProperties": false,
+        "properties": {
+          "amount": { "type": "string", "pattern": "^-?[0-9]+$", "description": "A whole number of smallest units. Never a decimal, never a JSON number." },
+          "commodity": { "type": "string", "description": "IDR, USD, BTC, BBCA.JK, XAU_GRAM." }
+        }
+      },
+      "Date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", "description": "A civil date, with no timezone. It is the only field any calculation reads when deciding when something happened." },
+      "Rate": {
+        "type": ["object", "null"],
+        "description": "An exchange rate as an exact fraction, recorded on the posting at the moment of the transaction. The value is a string because a rate is routinely something like 48001/3, which no decimal holds.",
+        "required": ["base", "quote", "value"],
+        "additionalProperties": false,
+        "properties": {
+          "base": { "type": "string" },
+          "quote": { "type": "string" },
+          "value": { "type": "string", "description": "An exact rational, as an integer or as numerator/denominator." }
+        }
+      },
+
+      "Health": {
+        "type": "object",
+        "required": ["status", "service", "checks"],
+        "properties": {
+          "status": { "type": "string" },
+          "service": { "type": "string" },
+          "checks": {
+            "type": "object",
+            "properties": {
+              "database": {
+                "type": "object",
+                "required": ["status"],
+                "properties": {
+                  "status": { "type": "string" },
+                  "schema_version": { "type": "integer", "description": "Omitted entirely when the check failed, so that absent is not read as zero." }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": ["email", "password"],
+        "additionalProperties": false,
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "password": { "type": "string", "minLength": 12 }
+        }
+      },
+      "RegisteredUser": { "type": "object", "required": ["user_id"], "properties": { "user_id": { "$ref": "#/components/schemas/ID" } } },
+      "Session": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["authenticated", "second_factor_required"], "description": "second_factor_required is not an error. It names the next step." },
+          "user_id": { "$ref": "#/components/schemas/ID" },
+          "email": { "type": "string" },
+          "expires_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Code": { "type": "object", "required": ["code"], "additionalProperties": false, "properties": { "code": { "type": "string", "description": "A one-time code, or a backup code." } } },
+      "BeginEnrolment": {
+        "type": "object",
+        "required": ["secret", "uri"],
+        "properties": {
+          "secret": { "type": "string", "description": "Base32, shown once and never readable again." },
+          "uri": { "type": "string", "description": "The otpauth:// form of the same secret, for a QR code." }
+        }
+      },
+      "BackupCodes": { "type": "object", "required": ["backup_codes"], "properties": { "backup_codes": { "type": "array", "items": { "type": "string" }, "description": "Shown once, when issued. There is no endpoint that reads them back." } } },
+      "BackupCodeCount": { "type": "object", "required": ["unused"], "properties": { "unused": { "type": "integer" } } },
+
+      "Commodity": {
+        "type": "object",
+        "required": ["code", "kind", "scale"],
+        "properties": {
+          "code": { "type": "string" },
+          "kind": { "type": "string", "enum": ["currency", "equity", "fund", "crypto", "metal"] },
+          "scale": { "type": "integer", "minimum": 0, "maximum": 255, "description": "How many decimal places the smallest unit is. IDR 2, BTC 8, ETH 18, whole shares 0." }
+        }
+      },
+      "Account": {
+        "type": "object",
+        "required": ["id", "parent_id", "kind", "name", "commodity", "closed"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "parent_id": { "oneOf": [{ "$ref": "#/components/schemas/ID" }, { "type": "null" }], "description": "Null for a root account." },
+          "kind": { "type": "string", "enum": ["asset", "liability", "equity", "income", "expense"] },
+          "name": { "type": "string", "description": "User data, stored verbatim and never translated." },
+          "commodity": { "type": ["string", "null"], "description": "Null when the account may hold several, which is normal for a brokerage holding cash and shares at once." },
+          "closed": { "type": "boolean", "description": "A closed account keeps its history and its balance; it is only hidden from pickers." }
+        }
+      },
+      "NewAccount": {
+        "type": "object",
+        "required": ["id", "kind", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "parent_id": { "oneOf": [{ "$ref": "#/components/schemas/ID" }, { "type": "null" }] },
+          "kind": { "type": "string", "enum": ["asset", "liability", "equity", "income", "expense"] },
+          "name": { "type": "string" },
+          "commodity": { "type": ["string", "null"] },
+          "closed": { "type": "boolean" }
+        }
+      },
+      "AccountLabel": {
+        "type": "object",
+        "description": "The only update an account accepts. kind, parent_id and commodity are declared here so that sending them can be refused BY NAME rather than as an unknown field — they are real fields of an account that this endpoint will not change.",
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "closed": { "type": "boolean" },
+          "kind": { "type": "string", "description": "REFUSED with field_immutable if present." },
+          "parent_id": { "type": "string", "description": "REFUSED with field_immutable if present." },
+          "commodity": { "type": "string", "description": "REFUSED with field_immutable if present." }
+        }
+      },
+
+      "Posting": {
+        "type": "object",
+        "required": ["id", "account_id", "amount", "rate", "memo", "reverses_id"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "account_id": { "$ref": "#/components/schemas/ID" },
+          "amount": { "$ref": "#/components/schemas/Money" },
+          "rate": { "$ref": "#/components/schemas/Rate" },
+          "memo": { "type": "string" },
+          "reverses_id": { "oneOf": [{ "$ref": "#/components/schemas/ID" }, { "type": "null" }], "description": "The line this one undoes, on a reversing transaction. Line-level provenance: a transaction that acquires two things at once has two lines a transaction-level link cannot tell apart." }
+        }
+      },
+      "NewPosting": {
+        "type": "object",
+        "required": ["id", "account_id", "amount"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "account_id": { "$ref": "#/components/schemas/ID" },
+          "amount": { "$ref": "#/components/schemas/Money" },
+          "rate": { "$ref": "#/components/schemas/Rate" },
+          "memo": { "type": "string" }
+        }
+      },
+      "Transaction": {
+        "type": "object",
+        "required": ["id", "date", "occurred_at", "timezone", "payee", "memo", "reverses_id", "reversal_kind", "postings"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "date": { "$ref": "#/components/schemas/Date" },
+          "occurred_at": { "type": ["string", "null"], "format": "date-time", "description": "Display only, and stored at MICROSECOND resolution: PostgreSQL's timestamptz holds microseconds where Go holds nanoseconds, so an instant written with nanosecond precision reads back three digits shorter." },
+          "timezone": { "type": ["string", "null"], "description": "Display only. The IANA zone occurred_at was observed in." },
+          "payee": { "type": "string" },
+          "memo": { "type": "string" },
+          "reverses_id": { "oneOf": [{ "$ref": "#/components/schemas/ID" }, { "type": "null" }] },
+          "reversal_kind": { "type": ["string", "null"], "enum": ["correction", "deletion", null] },
+          "postings": { "type": "array", "minItems": 2, "items": { "$ref": "#/components/schemas/Posting" }, "description": "In the order the author wrote them, and summing to zero per commodity." }
+        }
+      },
+      "NewTransaction": {
+        "type": "object",
+        "required": ["id", "date", "postings"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "date": { "$ref": "#/components/schemas/Date" },
+          "occurred_at": { "type": ["string", "null"], "format": "date-time" },
+          "timezone": { "type": ["string", "null"] },
+          "payee": { "type": "string" },
+          "memo": { "type": "string" },
+          "postings": { "type": "array", "minItems": 2, "items": { "$ref": "#/components/schemas/NewPosting" } },
+          "disposing": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ID" },
+            "description": "PROVISIONAL. Names the lines that reduce a holding, so the lots they draw on are recorded.\n\nThe field itself is the minimum restatement of the one fact the repository cannot derive — which lines are disposals rather than ordinary reductions — and M7 cannot make it smaller. What is provisional is the RESPONSE: this endpoint reports the transaction and nothing whatever about the lots consumed, in the body or in a header, because encoding an unrounded exact fraction is an investment-API decision with no interface to test it against yet. M7 revisits it, and the change it may make is additive."
+          },
+          "reverses_id": { "type": "string", "description": "REFUSED with field_immutable if present. A reversal is written through /corrections or /deletions; a client that could hand-craft one could link two transactions that answer nothing about each other, and the audit trail would record it as an ordinary create." },
+          "reversal_kind": { "type": "string", "description": "REFUSED with field_immutable if present." }
+        }
+      },
+      "Reversal": {
+        "type": "object",
+        "required": ["id", "date", "postings"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "$ref": "#/components/schemas/ID" },
+          "date": { "$ref": "#/components/schemas/Date", "description": "REQUIRED and never defaulted. See the endpoint description." },
+          "occurred_at": { "type": ["string", "null"], "format": "date-time" },
+          "timezone": { "type": ["string", "null"] },
+          "memo": { "type": "string", "description": "What is new about this transaction. \"Wrong amount, see receipt\" belongs here." },
+          "postings": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/components/schemas/ID" },
+            "description": "A MAP from each posting of the original to the identity its answering line will carry — not a list in posting order, because pointing at a posting by its position breaks silently when a slice is reordered.\n\nExactly one entry per original line, no two sharing an identity, and every original answered. A key naming a line that belongs to another transaction is refused by the same rule that refuses a missing one."
+          }
+        }
+      },
+
+      "ListEnvelope": {
+        "type": "object",
+        "required": ["items", "next_cursor"],
+        "properties": {
+          "items": { "type": "array" },
+          "next_cursor": { "type": ["string", "null"], "description": "Where the next page starts, or null when there is none. Opaque: pass it back, never read it." }
+        }
+      },
+      "CommodityList": {
+        "allOf": [{ "$ref": "#/components/schemas/ListEnvelope" }],
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Commodity" } },
+          "next_cursor": { "type": "null", "description": "ALWAYS null. This endpoint is not paginated." }
+        }
+      },
+      "AccountList": {
+        "allOf": [{ "$ref": "#/components/schemas/ListEnvelope" }],
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Account" } },
+          "next_cursor": { "type": "null", "description": "ALWAYS null. This endpoint is not paginated." }
+        }
+      },
+      "TransactionList": {
+        "allOf": [{ "$ref": "#/components/schemas/ListEnvelope" }],
+        "type": "object",
+        "properties": {
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/Transaction" } },
+          "next_cursor": { "type": ["string", "null"] }
+        }
+      },
+
+      "Error": {
+        "type": "object",
+        "description": "Every failure crosses the wire in this shape. `code` is a stable identifier a client translates through its own catalogue; `message` is developer-facing English and is NEVER displayed. `details` carries machine-readable specifics and never pre-formatted prose, because prose there is a user-facing string that went around the catalogue.",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "description": "A new code exists only when a client acts differently because of it, or when the person reading the screen must be told something different. Everything else is validation_failed carrying field and details.",
+                "enum": [
+                  "invalid_request",
+                  "invalid_credentials",
+                  "second_factor_required",
+                  "second_factor_already_set",
+                  "unauthenticated",
+                  "rate_limited",
+                  "registration_unavailable",
+                  "not_found",
+                  "invalid_cursor",
+                  "cursor_filter_changed",
+                  "idempotency_key_required",
+                  "idempotency_key_reused",
+                  "validation_failed",
+                  "field_immutable",
+                  "already_reversed",
+                  "internal"
+                ]
+              },
+              "message": { "type": "string" },
+              "field": { "type": "string", "description": "Which parameter or field was wrong, as a dotted path following the body: postings.2.amount, date, limit." },
+              "details": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Machine-readable specifics. `reason` names which domain rule was broken as a stable token: unbalanced, unknown_account, commodity_mismatch, invalid_reversal." }
+            }
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "session": [] }]
+}

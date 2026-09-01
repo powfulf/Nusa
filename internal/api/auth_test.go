@@ -276,6 +276,7 @@ func (h *harness) do(method, path string, body any, cookie string) response {
 
 	w := httptest.NewRecorder()
 	h.router.ServeHTTP(w, r)
+	recordStatus(method, path, w.Code)
 	return response{code: w.Code, body: w.Body.String(), cookies: w.Result().Cookies(), header: w.Header()}
 }
 
@@ -298,6 +299,7 @@ func (h *harness) doKeyed(method, path, key string, body any, cookie string) res
 
 	w := httptest.NewRecorder()
 	h.router.ServeHTTP(w, r)
+	recordStatus(method, path, w.Code)
 	return response{code: w.Code, body: w.Body.String(), cookies: w.Result().Cookies(), header: w.Header()}
 }
 

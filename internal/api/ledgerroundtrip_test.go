@@ -5,6 +5,8 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"math/big"
 	"net/http"
@@ -52,8 +54,42 @@ var (
 	pgTerminate func()
 )
 
+// observedStatuses records every (method, route, status) the suite produced,
+// so the OpenAPI guard can check that the document covers what the
+// implementation actually returns. It is filled by the harness's request
+// helpers and read once, after the run.
+var (
+	observedMu       sync.Mutex
+	observedStatuses = map[string]bool{}
+)
+
+// errNoObservations reports a status check that read nothing. A comparison
+// over an empty set is green, and that is exactly how a check of this shape
+// has reported success before (§11).
+var errNoObservations = errors.New("no responses were observed, so this check compared nothing")
+
 func TestMain(m *testing.M) {
 	code := m.Run()
+
+	// Only when the suite itself passed, and only when the whole of it ran.
+	//
+	// A failing run produces statuses from tests that were going wrong, and
+	// reporting those as undocumented would bury the real failure under a
+	// second one. A filtered run — somebody working on one test — produces a
+	// handful of observations or none, and failing them for that would train
+	// people to ignore this check. CI runs unfiltered, which is where it has
+	// to hold.
+	filtered := false
+	if f := flag.Lookup("test.run"); f != nil && f.Value.String() != "" {
+		filtered = true
+	}
+	if code == 0 && !filtered {
+		if err := checkObservedStatusesAreDocumented(); err != nil {
+			fmt.Fprintln(os.Stderr, "openapi:", err)
+			code = 1
+		}
+	}
+
 	if pgTerminate != nil {
 		pgTerminate()
 	}

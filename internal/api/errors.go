@@ -121,6 +121,33 @@ const (
 	CodeInternal ErrorCode = "internal"
 )
 
+// allErrorCodes is every code this package produces.
+//
+// Go cannot enumerate the constants above, and the OpenAPI document has to
+// list them: a spec naming a code the server never sends is a catalogue entry
+// a client translates for nothing, and a code the server sends that the spec
+// omits is a string a client has no rendering for. So the list exists, and a
+// guard checks it against the constant block by reading this file — otherwise
+// the list itself becomes the third place to forget.
+var allErrorCodes = []ErrorCode{
+	CodeInvalidRequest,
+	CodeInvalidCredentials,
+	CodeSecondFactorRequired,
+	CodeSecondFactorAlreadySet,
+	CodeUnauthenticated,
+	CodeRateLimited,
+	CodeRegistrationUnavailable,
+	CodeNotFound,
+	CodeInvalidCursor,
+	CodeCursorFilterChanged,
+	CodeIdempotencyKeyRequired,
+	CodeIdempotencyKeyReused,
+	CodeValidationFailed,
+	CodeFieldImmutable,
+	CodeAlreadyReversed,
+	CodeInternal,
+}
+
 // errorBody is the shape every failure crosses the wire in.
 type errorBody struct {
 	Error errorDetail `json:"error"`
