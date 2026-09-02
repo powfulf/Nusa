@@ -32,14 +32,25 @@ linters:
               desc: internal/ledger is pure domain — HTTP belongs in internal/api
             - pkg: github.com/powfulf/Nusa/internal/config
               desc: internal/ledger must not depend on configuration
-            # NOT FALSIFIABLE TODAY, and kept anyway. internal/store imports
-            # internal/ledger, so an import the other way is a compile-time
-            # cycle: Go refuses it before depguard is consulted, and a
-            # deliberate break produces a typechecking error rather than this
-            # message. It becomes the only thing stopping the import the day
-            # store no longer imports ledger. Verified by exercising the
-            # internal/config denial beside it, which has no cycle and does
-            # fire.
+            # NOT FALSIFIABLE TODAY, and kept anyway.
+            #
+            # internal/store imports internal/ledger, so an import the other
+            # way is a compile-time cycle: Go refuses it before depguard is
+            # consulted, and a deliberate break produces a typechecking error
+            # rather than this message.
+            #
+            # This belongs to the §11 category of lines that are correct and
+            # undefended, but for a DIFFERENT reason from the others in it.
+            # The ORDER BY tie-break and the ClientIP branch are satisfied
+            # incidentally by something that happens to do the same job. This
+            # one is not satisfied at all — an earlier layer refuses the case
+            # before the rule is reached, so the rule is never wrong, merely
+            # never consulted. It becomes the only thing stopping the import
+            # the day store no longer imports ledger.
+            #
+            # What proves this rule still matches after a module rename is the
+            # internal/config denial beside it: no cycle, and its pattern
+            # contains the module path.
             - pkg: github.com/powfulf/Nusa/internal/store
               desc: dependencies point inward — store may import ledger, never the reverse
 
@@ -65,9 +76,17 @@ linters:
             - pkg: github.com/powfulf/Nusa/internal/config
               desc: internal/auth must not depend on configuration — parameters are passed in
             # Not falsifiable today either, and for the same reason: store
-            # imports auth, so the reverse is a cycle. The net/http denial
-            # above is what proves this rule is still matching after a module
-            # rename.
+            # imports auth, so the reverse is a cycle and an earlier layer
+            # refuses it before this rule is consulted. Never wrong, never
+            # reached. See the note on the matching denial in
+            # ledger-is-pure-domain for why that is a different case from a
+            # line satisfied incidentally.
+            #
+            # Note that the net/http denial above proves this RULE still
+            # matches, but not the RENAME: it names a standard-library package
+            # and would fire however the module was spelled. Only a denial
+            # whose pattern contains the module path tests that, and this rule
+            # has one — internal/config.
             - pkg: github.com/powfulf/Nusa/internal/store
               desc: dependencies point inward — store may import auth, never the reverse
 

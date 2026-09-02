@@ -279,6 +279,12 @@ satisfied by editing the check.
 - Coverage target: 85% in `internal/ledger`, 60% elsewhere. Coverage is a floor, not a goal.
 - **A guard is not installed until you have watched it fail.** Decide what it must cover *before* writing it, then break each item on that list in turn and confirm the failure. "The check passes" is not evidence the check works — a check that reads nothing also passes.
 - **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
+- **A break that fails is not a break that fired. Check which mechanism refused it.** The rule above says to check that the test which went red is the one you predicted. This is the second axis of the same discipline, and it is the one that hides longer: check that the thing which *made* it red is the thing you are verifying. A break refused by the compiler proves nothing about a linter. A break refused by a database constraint proves nothing about domain validation. A break refused by a middleware two layers up proves nothing about the handler. **A correct failure arriving through the wrong path is indistinguishable from a successful verification**, because both look like red.
+
+  The instance is expensive and is stated plainly rather than softened. Verifying a module rename means proving the depguard rules still match the new path, and the obvious break — importing `internal/store` into `internal/ledger` — fails. It fails because `internal/store` imports `internal/ledger`, so the reverse is a compile-time cycle that Go refuses before depguard is consulted; golangci-lint reports a typechecking error and the rule never speaks. **The first repository move recorded that break as confirmation, and §13 said so for several milestones. The evidence was never there.**
+
+  There is a practical consequence for renames specifically, and it generalises to any change with an axis. A rule with several denials is only tested along the axis the break touches: of the four denials in each of these rules, three name standard-library packages and would pass however the module was spelled. Only the denial whose *pattern contains the module path* tests a rename at all. **So choose the break that touches what changed, not the break that is easiest to write.**
+
 - **A guard must not borrow an external source's authority for something that source never said.** Published test vectors prove exactly what they cover and nothing adjacent to it; a check labelled as RFC-backed when the RFC is silent on the case is a false claim wearing a citation. Self-consistency checks are legitimate and often the only thing available — differential tests, round trips, invariants against a second implementation — but they are labelled as what they are, in the test, so nobody later mistakes them for proof from outside.
 - **A comparison check must prove both sides are non-empty before it compares them.** A diff of two empty sets is green, a `grep` over a file that never arrived matches nothing, and a suite whose cases are all rejected early reports success. Every one of those looks exactly like a pass. Assert the size of what you are about to compare — line counts, row counts, case counts — and fail if it is zero, so the check cannot succeed by reading nothing. **This is the default failure mode of a comparator, not an occasional lapse: it has now happened five times in this one project.** A property suite that got twelve times faster because its generator's output was being discarded; a schema comparison that produced an empty diff because the SQL never reached the container; a `CREATE DATABASE` that failed silently and left both sides empty; a guard asserting that reissued backup codes invalidate the old ones, which held equally when no codes were ever stored; and an OpenAPI check that looked up each observed response by path and skipped anything it could not find — so a normalisation that stopped matching would have skipped every one and passed.
 
@@ -2435,14 +2441,6 @@ enrolment was begun and never confirmed had no test, and removing the branch
 that lets it through turned an ordinary request into a 500 with the whole suite
 still green. It has a guard now.
 
-#### Deliberately deferred
-
-| Deferred | Lands in |
-| --- | --- |
-| Consumption detail in any HTTP response, and with it the wire encoding of `ledger.Rat` | M7 |
-| Row ownership on ledger tables, and re-weighing per-account rate limiting — together, when the index falls | M9 |
-| `/lots`, balances and reports as endpoints. Balances have five store methods and no consumer; what a report should say is M6's question | M6 |
-
 #### A guard that checked the value and not the declared type
 
 The OpenAPI shape guard exists to stop the document describing money as
@@ -2548,3 +2546,84 @@ no longer imports ledger or auth.
 > **Rule.** A break that fails is not a break that fired. Check *which*
 > mechanism refused it — the compiler and the linter both say no, and only one
 > of them is the thing under test.
+
+### M2b Phase 2 — what it leaves behind
+
+#### Lines that are correct, undefended, and would survive deletion in silence
+
+Six of them now, which is enough that scattering them through a phase log
+would lose them. Each is correct, each is load-bearing or becomes so, and
+**no test anywhere would go red if it were deleted** — so each carries a label
+in place saying the same four things: what the line does, what satisfies it
+today, that nothing will catch its removal, and what would make it matter.
+
+| Line | What satisfies it today | What would make it matter |
+| --- | --- | --- |
+| The `len(trusted) == 0` branch in `api.ClientIP` | the check after it: an empty list contains no peer either way | `inAny` changing to treat an empty list as matching everything, which would become blanket trust |
+| The `id` in `ORDER BY txn_date, id` behind keyset pagination | the query plan — an Index Only Scan on an index that *is* `(txn_date, id)` | any plan change: the index dropped, a parallel or bitmap plan at a size nobody has reached, a different planner |
+| The length prefix in the cursor filter digest | both filter fields being either empty or exactly ten characters, so no two sets concatenate alike | a filter of variable length — an account name, a payee, a free-text search |
+| The `Truncate(time.Microsecond)` in `store.timestampFrom` | the driver and the column truncating identically a moment later | nothing, in behaviour. It buys legibility: the loss happens at a named place instead of inside the driver |
+| `internal/store` denied inside `internal/ledger` (depguard) | an earlier layer — store imports ledger, so the reverse is a cycle Go refuses before depguard is consulted | store no longer importing ledger, at which point the rule is the only thing left |
+| `internal/store` denied inside `internal/auth` (depguard) | the same cycle, for the same reason | store no longer importing auth |
+
+**They are not all the same kind, and the distinction is worth keeping** so the
+category does not become a bin for anything unproven. The first three are
+*satisfied incidentally*: something else happens to do the job, and the line
+would be doing it if that something changed. The fourth is *behaviourally
+redundant* and kept for legibility alone. The last two are *never reached*: an
+earlier layer refuses the case, so the rule is not wrong, merely unconsulted.
+
+The reason for keeping all six is the same. An unlabelled line that no test
+defends gets deleted eventually by somebody who checked that the suite still
+passes — and passing is exactly what it does either way.
+
+#### Debts leaving this phase, each with what calls it in
+
+| Debt | What brings it due |
+| --- | --- |
+| Consumption detail in an HTTP response, and with it the wire encoding of `ledger.Rat` | **M7.** The store records which lots a sale drew on and nothing reports it. Deciding how an unrounded exact fraction crosses the wire is deciding whether a client may do arithmetic on it, and there is no holdings interface to test that against yet |
+| Row ownership on ledger tables, **and** re-weighing per-account rate limiting | **M9**, and they fall together. Both rest on `users_at_most_one_credentialed`, in different files, neither mentioning the other. Finding one and not the other leaves an instance that either locks a named person out of their own finances or lets every household member read every other member's book |
+| `/lots`, balances and reports as endpoints | **M6.** Balances have five store methods and no consumer; what a report should say is M6's question, not a shape to guess now |
+| A filter by account on `/transactions` | **M4.** It moves the keyset from `transactions` to `postings` — a different query shape — and M4 is where the use case arrives |
+| Structural validation of the OpenAPI document against the meta-schema | somebody willing to take the dependency. Three guards compare it against the implementation; nothing checks it against the specification's own schema, and the nearest validator is an unpinned network tool |
+| Cancelling an in-flight request when its session is revoked | the first long-lived endpoint — server-sent events, a long poll, anything outliving a few milliseconds |
+| An `auth_events` table for anonymous attempts | an operator needing a queryable history of attempts that have no actor. A migration of its own, never a weaker constraint |
+| Encrypting the TOTP secret at rest | a key that genuinely lives somewhere other than beside the database backup |
+| Sweeping expired sessions on a schedule | `SweepExpiredSessions` exists and nothing calls it periodically. **M12** |
+
+#### State after M2b Phase 2
+
+The ledger is reachable by a person, over HTTP, end to end.
+
+Somebody can register on a fresh instance, sign in, set up a second factor and
+be asked for it afterwards, then read the commodities, the account tree and a
+paginated journal; create accounts and rename them; write transactions;
+correct one; delete one as a tombstone; record a disposal against their lots;
+and retry any of it safely, because every mutation carries a key and a replay
+repeats the first attempt's status and bytes rather than writing again. The
+whole surface is described by a document that is checked against the router in
+both directions.
+
+`internal/ledger` is unchanged in behaviour across the whole of Phase 2. The
+only edits it took were fifteen import lines during the module rename, checked
+to contain nothing else. The freeze that Phase 0 closed has held through
+persistence, authentication and a complete HTTP surface.
+
+**What does not exist**: any frontend beyond M0's health card, any budget or
+envelope, any report, any multi-currency valuation, any Country Pack. Those are
+M3 onward, and none of them needs the ledger to change.
+
+**What this phase cost in findings** is worth stating, because the number is
+the argument for the discipline rather than a complaint about it. Eleven
+defects were found, and **not one was found by a test that was already
+failing**:
+
+| Found by | Defects |
+| --- | --- |
+| Breaking a guard on purpose | the disposal secrecy guard reading only the body; the OpenAPI shape guard reading the value and not the declared type; the unconfirmed-enrolment path with no test |
+| Refusing to take our own comment as a premise | `jsonb` normalising the response body, which made "byte-for-byte replay" false beneath thirteen passing guards |
+| Auditing a generator against a list of fields | `OccurredAt`, `Timezone`, `Account.Closed` and two of the five account kinds, none of them varied, all compared perfectly |
+| Reading an assertion and asking what would make it red | an assertion whose disjunction was always true; a reissue guard that held equally when nothing was stored |
+| Reading what a command said back | the repository move, printed among the progress lines of a push that succeeded |
+| Checking *which* mechanism refused a break | the first rename's depguard verification, which had never actually tested the rule |
+
