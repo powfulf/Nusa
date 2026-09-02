@@ -3,7 +3,7 @@
 package api
 
 import (
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // The wire shapes.

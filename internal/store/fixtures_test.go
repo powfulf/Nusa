@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
-	"github.com/GaffaQ/Nusa/internal/store"
+	"github.com/powfulf/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/store"
 )
 
 // books is the small fixture most tests write against: one actor and three

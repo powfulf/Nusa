@@ -12,8 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // The storage behind internal/auth.

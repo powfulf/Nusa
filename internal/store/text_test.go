@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // NUL, and the three layers that refuse it.

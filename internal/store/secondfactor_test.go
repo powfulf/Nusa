@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
-	"github.com/GaffaQ/Nusa/internal/store"
+	"github.com/powfulf/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/store"
 )
 
 // Items 16 to 24 of the coverage list in auth_test.go.

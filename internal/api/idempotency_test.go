@@ -16,7 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/api"
+	"github.com/powfulf/Nusa/internal/api"
 )
 
 // What these guards must cover, decided before any of them was written.

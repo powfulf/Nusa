@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/config"
+	"github.com/powfulf/Nusa/internal/config"
 )
 
 // env builds a LookupFunc over a literal map, so tests never touch process

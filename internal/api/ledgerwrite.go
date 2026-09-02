@@ -13,8 +13,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
-	"github.com/GaffaQ/Nusa/internal/store"
+	"github.com/powfulf/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/store"
 )
 
 // The write side of the ledger API.

@@ -1,4 +1,4 @@
-module github.com/GaffaQ/Nusa
+module github.com/powfulf/Nusa
 
 go 1.22
 

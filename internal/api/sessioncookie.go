@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/brand"
+	"github.com/powfulf/Nusa/internal/brand"
 )
 
 // The session cookie.

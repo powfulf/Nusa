@@ -18,9 +18,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/api"
-	"github.com/GaffaQ/Nusa/internal/ledger"
-	"github.com/GaffaQ/Nusa/internal/store"
+	"github.com/powfulf/Nusa/internal/api"
+	"github.com/powfulf/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/store"
 )
 
 // The OpenAPI document, checked against the implementation.

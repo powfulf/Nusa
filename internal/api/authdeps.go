@@ -9,7 +9,7 @@ import (
 	"net/netip"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/auth"
 )
 
 // PasswordHasher is what this layer needs from auth.Hasher.

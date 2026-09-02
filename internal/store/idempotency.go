@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // Idempotency is enforced here, in the repository, rather than in HTTP

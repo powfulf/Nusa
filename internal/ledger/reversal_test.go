@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // original returns a two-line transaction and the map naming the identities

@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
-	"github.com/GaffaQ/Nusa/internal/store"
+	"github.com/powfulf/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/store"
 )
 
 func TestEveryWriteRecordsWhoDidItAndWhatCausedIt(t *testing.T) {

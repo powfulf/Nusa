@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/GaffaQ/Nusa/internal/ledger"
+	"github.com/powfulf/Nusa/internal/ledger"
 )
 
 // Origin says what caused a mutation. Section 10 requires it on every audit

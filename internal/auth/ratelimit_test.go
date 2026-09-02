@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/auth"
 )
 
 // What these guards must cover. Written before they were, and each item was

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/api"
+	"github.com/powfulf/Nusa/internal/api"
 )
 
 // stubDatabase stands in for the store so the HTTP layer can be tested without

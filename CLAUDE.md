@@ -49,7 +49,7 @@ A self-hostable, open-source personal finance application. One correct double-en
 
 `go mod tidy` raises the `go` directive on its own when any dependency — including a *test* dependency of a dependency, which nothing we ship ever executes — asks for a newer one. Always run it as `go mod tidy -go=1.22`, and pin the offending module back rather than accepting the bump. CI verifies the directive against the version it installs and runs `GOTOOLCHAIN=local` everywhere except the steps that build `tools/`; without that asymmetry Go would simply fetch the newer toolchain and every job would pass.
 
-**Module path:** `github.com/GaffaQ/Nusa`. It must match the repository path **exactly, including the capital N**. Go treats a module path as case-sensitive while GitHub does not, so `github.com/gaffaq/nusa` resolves in a browser and then fails to match what the module proxy has recorded. Never normalise it to lowercase.
+**Module path:** `github.com/powfulf/Nusa`. It must match the repository path **exactly, including the capital N**. Go treats a module path as case-sensitive while GitHub does not, so `github.com/gaffaq/nusa` resolves in a browser and then fails to match what the module proxy has recorded. Never normalise it to lowercase.
 
 **The module path and the product name are separate things.** The product name lives in `internal/brand/brand.go` as constants and is not final; never hardcode "Nusa" in UI strings, because all user-facing text goes through i18n. Renaming the product does not move the module, and moving the repository does not rename the product.
 
@@ -280,7 +280,9 @@ satisfied by editing the check.
 - **A guard is not installed until you have watched it fail.** Decide what it must cover *before* writing it, then break each item on that list in turn and confirm the failure. "The check passes" is not evidence the check works — a check that reads nothing also passes.
 - **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
 - **A guard must not borrow an external source's authority for something that source never said.** Published test vectors prove exactly what they cover and nothing adjacent to it; a check labelled as RFC-backed when the RFC is silent on the case is a false claim wearing a citation. Self-consistency checks are legitimate and often the only thing available — differential tests, round trips, invariants against a second implementation — but they are labelled as what they are, in the test, so nobody later mistakes them for proof from outside.
-- **A comparison check must prove both sides are non-empty before it compares them.** A diff of two empty sets is green, a `grep` over a file that never arrived matches nothing, and a suite whose cases are all rejected early reports success. Every one of those looks exactly like a pass. Assert the size of what you are about to compare — line counts, row counts, case counts — and fail if it is zero, so the check cannot succeed by reading nothing. This has now happened twice: a property suite that got twelve times faster because its generator's output was being discarded, and a schema comparison that produced an empty diff because the SQL never reached the container.
+- **A comparison check must prove both sides are non-empty before it compares them.** A diff of two empty sets is green, a `grep` over a file that never arrived matches nothing, and a suite whose cases are all rejected early reports success. Every one of those looks exactly like a pass. Assert the size of what you are about to compare — line counts, row counts, case counts — and fail if it is zero, so the check cannot succeed by reading nothing. **This is the default failure mode of a comparator, not an occasional lapse: it has now happened five times in this one project.** A property suite that got twelve times faster because its generator's output was being discarded; a schema comparison that produced an empty diff because the SQL never reached the container; a `CREATE DATABASE` that failed silently and left both sides empty; a guard asserting that reissued backup codes invalidate the old ones, which held equally when no codes were ever stored; and an OpenAPI check that looked up each observed response by path and skipped anything it could not find — so a normalisation that stopped matching would have skipped every one and passed.
+
+  That last one is the shape worth naming separately, because it defeats the obvious repair. The check *did* assert that its input was non-empty. What it did not assert was how many of those inputs survived its own filter — and a filter that matches nothing is indistinguishable from a filter that matches everything correctly, from the outside. **So a check that filters must assert how many items got through the filter, not merely that it was handed some.**
 - **A test that arranges the expected outcome by itself is testing nothing.** Ask what would happen if the function under test were deleted outright, not merely changed — if the assertion would still hold, the setup is producing the result and the subject is a passenger. The instance here: a check that a successful sign-in clears the rate-limit count first advanced the clock past the window, so the count had expired on its own and the test passed whether or not anything cleared it. Waiting out a timeout, seeding the answer, and asserting a default all fail this way, and all of them look like ordinary arrangement. The same shape reaches the assertion itself, through a disjunction one branch of which is always true: `require.True(t, errors.Is(err, ErrInvalidWrite) || ledger.ValidateID("not-a-uuid") != nil)` cannot fail, whatever the code does. Both are tests whose green does not depend on the subject — one arrives through the arrangement, the other through the assertion — and neither is found by running the suite, because both are already passing. They are found by reading the line and asking what would have to be true for it to go red.
 
   A third variant asserts a consequence that also follows from the premise never having held. "Reissuing invalidates the old backup codes" checked that an old code is refused afterwards — which is equally true when no codes were ever stored, and a break that skipped storage entirely left it green. The repair is the same discipline as asserting the size of a comparison before making it: **prove the premise exists before asserting what follows from it.**
@@ -601,6 +603,12 @@ require adding its subset before that translation ships.
 
 ### Repository move — `github.com/GaffaQ/Nusa`
 
+> **Historical.** This section records the *first* move, to
+> `github.com/GaffaQ/Nusa`, and the path it names is no longer current.
+> The module moved again in M2b Phase 2 — see *Repository move again*
+> below. Every mention of `GaffaQ` from here to the end of this section
+> is deliberate history, not a path anything should use.
+
 The project moved from the placeholder `github.com/nusa-app/nusa` to its real
 home. Both modules were renamed, along with every import, the depguard rules in
 `.golangci.yml`, and the goimports local prefix.
@@ -624,6 +632,13 @@ The depguard rules were re-verified rather than assumed: importing
 `internal/store` into `internal/ledger` was confirmed to fail against the new
 path, then reverted. A path rename is exactly the kind of change that can leave
 a rule matching nothing while still reporting success.
+
+> **Corrected in M2b Phase 2.** That break fails, but not for the reason this
+> paragraph implies. `internal/store` imports `internal/ledger`, so the reverse
+> import is a compile-time cycle: Go refuses it and golangci-lint reports a
+> typechecking error, and the depguard rule never speaks at all. The rename was
+> therefore never actually proved against a rule that could still match
+> nothing. See *Repository move again* for what does prove it.
 
 #### `brand.RepositoryURL` and the three constants
 
@@ -2427,3 +2442,109 @@ still green. It has a guard now.
 | Consumption detail in any HTTP response, and with it the wire encoding of `ledger.Rat` | M7 |
 | Row ownership on ledger tables, and re-weighing per-account rate limiting — together, when the index falls | M9 |
 | `/lots`, balances and reports as endpoints. Balances have five store methods and no consumer; what a report should say is M6's question | M6 |
+
+#### A guard that checked the value and not the declared type
+
+The OpenAPI shape guard exists to stop the document describing money as
+anything but a string, because §4.5 is the rule the whole wire shape is built
+around: a client that parses an amount as a JSON number loses precision above
+2^53, and a balance wrong by one smallest unit is indistinguishable from theft
+a year later.
+
+It checked two things: that `ledger.Money` marshals its fields as strings, and
+that the document declares the same field *names*. It did not check that the
+document declares those fields as **strings** — so a specification saying
+`"amount": { "type": "number" }` passed the guard written to prevent exactly
+that. The break found it; reading the guard would not have, because both
+assertions it made were true.
+
+This is the third of a kind, and they belong together as a category rather than
+as three separate oversights. In each, the coverage list was written before the
+guard — which is the rule, and it worked — and the *list itself* was
+incomplete:
+
+| Guard | What the list missed |
+| --- | --- |
+| The latency budget | `SubtreeBalance`, which then sat at 76 ms unremarked |
+| The disposal secrecy guard | the response headers; only the body was read |
+| The OpenAPI shape guard | the declared type; only the marshalled value was read |
+
+> **Rule.** Deciding coverage before writing a guard stops the guard being
+> audited against itself. It does nothing about a list that is short. So after
+> the list is written, ask the second question: for each item on it, what is
+> the *whole* surface that item can go wrong on — every part of a response,
+> every method that shares a budget, both sides of a comparison. Three times
+> now the answer has been larger than the list.
+
+### Repository move again — `github.com/powfulf/Nusa`
+
+The GitHub account was renamed from `GaffaQ` to `powfulf`, so the repository
+moved with it. The module path followed: both `go.mod` files, every import, the
+two depguard rules, the goimports local prefix, `brand.RepositoryURL`, the git
+remote and one line in `LICENSING.md`.
+
+**How it surfaced is the part worth keeping.** Nothing failed. The push that
+carried fifteen commits succeeded, because GitHub redirects a moved
+repository — and printed a notice among the progress lines that is easy to
+scroll past:
+
+```
+remote: This repository moved. Please use the new location:
+remote:   https://github.com/powfulf/Nusa.git
+```
+
+Everything kept working: the remote, the build, CI. What had quietly stopped
+being true is §3's requirement that the module path match the repository path
+exactly. That mismatch costs nothing until somebody else tries to depend on the
+module, or until the proxy caches the first spelling it saw — long after
+whoever moved the repository has forgotten.
+> **Rule.** Read what a remote says back, even when the command succeeded. A
+> redirect is a success with a warning attached, and the warning is the part
+> that expires.
+
+The capital N is preserved for the same reason it was the first time, and the
+reasoning has not aged: Go treats a module path as case-sensitive, GitHub does
+not treat a URL that way, so `github.com/powfulf/nusa` resolves in a browser
+and then fails to match what the proxy recorded.
+
+`brand.Name` and `brand.Slug` did not change. The product was not renamed; only
+the repository moved. That distinction is why those three constants sit in one
+file with a comment saying which is which — the first move got it wrong by
+reading "do not touch brand.go" as covering all three, and left
+`RepositoryURL` advertising a repository that no longer existed.
+
+**The depguard rules were re-verified rather than assumed**, which is the
+lesson the first move produced and the one most likely to be skipped the second
+time. A rename is exactly the change that leaves a lint rule matching nothing
+while still reporting success.
+
+The first attempt at that verification did not work, and finding out why is the
+useful part. Importing `internal/store` into `internal/ledger` — the obvious
+break, and the one the first move recorded — produces a typechecking error
+rather than the rule's message: `internal/store` imports `internal/ledger`, so
+the reverse import is a compile-time cycle that Go refuses before depguard is
+consulted. The break fails loudly and proves nothing about the rule.
+
+So each rule was exercised with a denial it can actually evaluate, and all four
+fired with their own messages:
+
+| Rule | Break | Message |
+| --- | --- | --- |
+| `ledger-is-pure-domain` | `database/sql` | persistence belongs in internal/store |
+| `ledger-is-pure-domain` | `internal/config` | must not depend on configuration |
+| `auth-is-pure-cryptography` | `database/sql` | persistence belongs behind a repository interface |
+| `auth-is-pure-cryptography` | `net/http` | cookies, headers and handlers belong in internal/api |
+
+The `internal/config` case is the one that actually proves the rename, because
+it is the only denial whose *pattern contains the module path*. The other three
+name standard-library packages and would have kept working however the module
+was spelled.
+
+The two `internal/store` denials are labelled in `.golangci.yml` as not
+falsifiable today — the sixth entry in the §11 category of lines that are
+correct, undefended by any test, and would survive deletion in silence. They
+are kept because they become the only thing stopping the import the day store
+no longer imports ledger or auth.
+> **Rule.** A break that fails is not a break that fired. Check *which*
+> mechanism refused it — the compiler and the linter both say no, and only one
+> of them is the thing under test.

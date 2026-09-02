@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/auth"
 )
 
 // In-memory stand-ins for the three repositories the handlers use.

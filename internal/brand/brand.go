@@ -24,7 +24,7 @@ package brand
 // not touch it.
 //
 // The two have already drifted apart once: the module path moved to
-// github.com/GaffaQ/Nusa while the product stayed Nusa. Expect them to keep
+// github.com/powfulf/Nusa while the product stayed Nusa. Expect them to keep
 // drifting, and do not "tidy" one to match the other.
 const (
 	// Name is the product name, for logs, HTTP headers and machine-readable
@@ -38,5 +38,5 @@ const (
 	// RepositoryURL is the canonical source location, surfaced in health
 	// responses and the OpenAPI document so an operator can identify exactly
 	// what they are running. It tracks the repository, not the product name.
-	RepositoryURL = "https://github.com/GaffaQ/Nusa"
+	RepositoryURL = "https://github.com/powfulf/Nusa"
 )

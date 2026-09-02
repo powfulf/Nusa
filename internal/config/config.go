@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/auth"
 )
 
 // This package imports internal/auth, and the dependency runs only that way:

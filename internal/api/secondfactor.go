@@ -6,8 +6,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
-	"github.com/GaffaQ/Nusa/internal/brand"
+	"github.com/powfulf/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/brand"
 )
 
 // Setting up a second factor.

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
-	"github.com/GaffaQ/Nusa/internal/config"
+	"github.com/powfulf/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/config"
 )
 
 // What these guards must cover. Written before they were, and each item was

@@ -119,7 +119,7 @@ goes through i18n rather than hardcoding it. The `NUSA_` environment prefix is
 the one deliberate exception, because a variable name cannot be resolved at
 runtime; a rename updates it there and in `.env.example`.
 
-The module path `github.com/GaffaQ/Nusa` is a separate matter again. It tracks
+The module path `github.com/powfulf/Nusa` is a separate matter again. It tracks
 where the source lives, not what the product is called, and a fork changes it
 because the repository moved rather than because the name did.
 

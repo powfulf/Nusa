@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/GaffaQ/Nusa/internal/auth"
+	"github.com/powfulf/Nusa/internal/auth"
 )
 
 // Session resolution, per request.

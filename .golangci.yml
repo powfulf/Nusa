@@ -30,9 +30,17 @@ linters:
               desc: internal/ledger is pure domain — persistence belongs in internal/store
             - pkg: net/http
               desc: internal/ledger is pure domain — HTTP belongs in internal/api
-            - pkg: github.com/GaffaQ/Nusa/internal/config
+            - pkg: github.com/powfulf/Nusa/internal/config
               desc: internal/ledger must not depend on configuration
-            - pkg: github.com/GaffaQ/Nusa/internal/store
+            # NOT FALSIFIABLE TODAY, and kept anyway. internal/store imports
+            # internal/ledger, so an import the other way is a compile-time
+            # cycle: Go refuses it before depguard is consulted, and a
+            # deliberate break produces a typechecking error rather than this
+            # message. It becomes the only thing stopping the import the day
+            # store no longer imports ledger. Verified by exercising the
+            # internal/config denial beside it, which has no cycle and does
+            # fire.
+            - pkg: github.com/powfulf/Nusa/internal/store
               desc: dependencies point inward — store may import ledger, never the reverse
 
         # The same list again, for the same reason, over a different package.
@@ -54,9 +62,13 @@ linters:
               desc: internal/auth is pure — persistence belongs behind a repository interface in internal/store
             - pkg: net/http
               desc: internal/auth is pure — cookies, headers and handlers belong in internal/api
-            - pkg: github.com/GaffaQ/Nusa/internal/config
+            - pkg: github.com/powfulf/Nusa/internal/config
               desc: internal/auth must not depend on configuration — parameters are passed in
-            - pkg: github.com/GaffaQ/Nusa/internal/store
+            # Not falsifiable today either, and for the same reason: store
+            # imports auth, so the reverse is a cycle. The net/http denial
+            # above is what proves this rule is still matching after a module
+            # rename.
+            - pkg: github.com/powfulf/Nusa/internal/store
               desc: dependencies point inward — store may import auth, never the reverse
 
     revive:
@@ -86,4 +98,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/GaffaQ/Nusa
+        - github.com/powfulf/Nusa

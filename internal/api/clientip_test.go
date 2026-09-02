@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GaffaQ/Nusa/internal/api"
+	"github.com/powfulf/Nusa/internal/api"
 )
 
 // What these guards must cover. Written before they were, and each item was
