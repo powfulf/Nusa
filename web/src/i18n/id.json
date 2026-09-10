@@ -20,5 +20,12 @@
   },
   "milestone": {
     "notice": "Ini baru kerangka proyek. Belum ada yang bisa dicatat."
+  },
+  "money": {
+    "commodity_mismatch": "Itu dua mata uang berbeda, jadi tidak bisa digabung.",
+    "reads_as": "Terbaca sebagai {value}",
+    "too_precise": "{commodity} dihitung sampai {scale, plural, =0 {satuan utuh} other {# angka di belakang koma}}.",
+    "unknown_commodity": "Kami belum tahu bagaimana {commodity} dihitung.",
+    "unparseable": "Itu belum bisa dibaca sebagai jumlah. Coba 1500000 atau 1,5jt."
   }
 }

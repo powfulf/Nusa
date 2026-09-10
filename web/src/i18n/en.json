@@ -20,5 +20,12 @@
   },
   "milestone": {
     "notice": "This is the project skeleton. There is nothing to record yet."
+  },
+  "money": {
+    "commodity_mismatch": "Those are two different currencies, so they cannot be combined.",
+    "reads_as": "Reads as {value}",
+    "too_precise": "{commodity} is counted to {scale, plural, =0 {whole units} one {# decimal place} other {# decimal places}}.",
+    "unknown_commodity": "We do not know how {commodity} is counted yet.",
+    "unparseable": "That is not an amount we can read. Try 1500000 or 1.5m."
   }
 }

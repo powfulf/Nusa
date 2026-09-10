@@ -1,5 +1,5 @@
 import i18n from 'i18next'
-import ICU from 'i18next-icu'
+import ICU from './icu'
 import { initReactI18next } from 'react-i18next'
 
 import en from './en.json'
@@ -55,6 +55,10 @@ export function rememberLanguage(language: Language): void {
  * ICU MessageFormat handles plural and select rules. Indonesian has no plural
  * forms and Arabic has six; the library knows the rules, so we never hand-roll
  * them and never concatenate translated fragments.
+ *
+ * The adapter is ours rather than `i18next-icu`, which could not construct the
+ * formatter at all and hid that behind a silent fallback. See ./icu.ts, and
+ * ./icu.test.ts for the check that would have caught it.
  */
 void i18n
   .use(ICU)
