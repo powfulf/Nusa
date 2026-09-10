@@ -22,9 +22,25 @@ const TOKENS_FILE = join('src', 'styles', 'tokens.css')
 const FONTS_FILE = join('src', 'styles', 'fonts.css')
 const TAILWIND_CONFIG = 'tailwind.config.js'
 
-const SCAN_DIRS = ['src']
+/*
+ * Every configured root is REQUIRED and must yield at least one file.
+ *
+ * An M3 survey found this scan reading less than it claimed: `scripts/` was
+ * not a root and `.mjs` was not an extension, so the guards themselves — the
+ * files most likely to grow a hard-coded value while nobody is looking — were
+ * invisible to it. A root that later disappears, or an extension that stops
+ * matching, turns this into a check that reads less every release and still
+ * reports success. So the counts are asserted rather than assumed: a filter
+ * that matches nothing is indistinguishable from one that matches everything
+ * correctly.
+ *
+ * When Playwright lands, `e2e` and `playwright.config.ts` join these lists.
+ * They are deliberately not listed as optional roots ahead of existing —
+ * an optional root that never appears is the same blind spot in a nicer coat.
+ */
+const SCAN_DIRS = ['src', 'scripts']
 const SCAN_FILES = ['tailwind.config.js', 'index.html', 'postcss.config.js', 'vite.config.ts']
-const SCAN_EXT = /\.(ts|tsx|css|html|js)$/
+const SCAN_EXT = /\.(ts|tsx|css|html|js|mjs)$/
 
 const problems = []
 
@@ -41,10 +57,31 @@ function walk(dir) {
   return out
 }
 
-const files = [
-  ...SCAN_DIRS.flatMap((d) => walk(join(webRoot, d))),
-  ...SCAN_FILES.map((f) => join(webRoot, f)),
-]
+const perRoot = new Map()
+for (const dir of SCAN_DIRS) {
+  let found = []
+  try {
+    found = walk(join(webRoot, dir))
+  } catch {
+    problems.push(`scan root ${dir}/ does not exist — the guard is reading less than it claims`)
+  }
+  if (found.length === 0) {
+    problems.push(`scan root ${dir}/ yielded no files — check SCAN_EXT against what is in it`)
+  }
+  perRoot.set(dir, found)
+}
+const namedFiles = []
+for (const name of SCAN_FILES) {
+  const full = join(webRoot, name)
+  try {
+    statSync(full)
+    namedFiles.push(full)
+  } catch {
+    problems.push(`scan file ${name} does not exist — the guard is reading less than it claims`)
+  }
+}
+
+const files = [...[...perRoot.values()].flat(), ...namedFiles]
 
 function report(file, line, text, message) {
   problems.push(`${file}:${line}  ${message}\n    ${text.trim()}`)
@@ -60,8 +97,11 @@ for (const absolute of files) {
   lines.forEach((text, index) => {
     const line = index + 1
 
-    // 1. Raw colours. Hex, rgb()/rgba(), hsl()/hsla() and the CSS named
-    //    colours that actually paint something.
+    // 1. Raw colours: hex, and the CSS colour functions in both their opaque
+    //    and alpha forms. Named without writing them out, because this file is
+    //    now inside its own scan and the rule is stated as a command — so the
+    //    command's output is the criterion, and a comment does not get an
+    //    exemption a component would not get. (The M1 float64 lesson.)
     if (!isTokens) {
       if (/#[0-9a-fA-F]{3,8}\b/.test(text) && !/^\s*(\/\/|\*|<!--)/.test(text)) {
         report(file, line, text, 'raw colour — colours live only in tokens.css')
@@ -125,9 +165,20 @@ for (const absolute of files) {
   })
 }
 
-// 5. Every custom property tokens.css defines must be referenced somewhere, and
-//    every var() used must be defined. A typo in a var() name is invisible in
-//    the browser: the property simply does not apply.
+// 5. Every var() used must be defined. A typo in a var() name is invisible in
+//    the browser: the property simply does not apply, and nothing anywhere
+//    says so.
+//
+//    This comment used to claim the other direction was checked too — that
+//    every token tokens.css defines is referenced somewhere. It was not, and
+//    nothing had ever noticed, because a claim about our own code sits in a
+//    comment where no test can reach it. Five tokens were added in M3 and the
+//    guard reported clean.
+//
+//    The direction is implemented below, and REPORTS rather than fails: some
+//    of those five legitimately have no consumer until the component that uses
+//    them is built, later in the same milestone. It is promoted to a failure
+//    at the end of M3, when every token has one.
 const tokensSource = readFileSync(join(webRoot, TOKENS_FILE), 'utf8')
 const defined = new Set([...tokensSource.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]))
 
@@ -146,6 +197,8 @@ for (const name of used) {
   }
 }
 
+const unreferenced = [...defined].filter((name) => !used.has(name)).sort()
+
 if (problems.length > 0) {
   console.error(`\nlint:tokens found ${problems.length} problem(s):\n`)
   for (const p of problems) console.error(`  ${p}\n`)
@@ -154,4 +207,17 @@ if (problems.length > 0) {
   process.exit(1)
 }
 
-console.log(`lint:tokens: clean (${files.length} files, ${defined.size} tokens defined)`)
+const counts = [...perRoot].map(([dir, found]) => `${dir}/ ${found.length}`).join(', ')
+console.log(
+  `lint:tokens: clean (${files.length} files — ${counts}, ${namedFiles.length} named; ` +
+    `${defined.size} tokens defined)`,
+)
+
+if (unreferenced.length > 0) {
+  console.log(
+    `\nlint:tokens: ${unreferenced.length} token(s) defined and referenced nowhere. Not a failure ` +
+      `yet — a token may legitimately precede the component that consumes it within a milestone. ` +
+      `This becomes a failure at the end of M3.`,
+  )
+  for (const name of unreferenced) console.log(`  ${name}`)
+}

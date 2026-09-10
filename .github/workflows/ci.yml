@@ -142,6 +142,22 @@ jobs:
       - name: Design tokens
         run: npm run lint:tokens
 
+      # CLAUDE.md §8.2 binds any design system, including a replacement. This
+      # covers the two parts of it a static scan can reach: logical properties,
+      # so RTL stays a stylesheet change; and complete class names, so a
+      # utility that Tailwind never emits cannot survive in development and
+      # vanish from the production bundle.
+      - name: Functional floor
+        run: npm run lint:floor
+
+      # Scans the WHOLE repository — Go, SQL and the normative documents as
+      # well as web/ — for control characters that a shell substituted for what
+      # was written. Four have landed here across three milestones, each caught
+      # by somebody remembering to run a two-line scan by hand. This is that
+      # scan, running whether or not anybody remembers.
+      - name: Invisible characters
+        run: npm run lint:bytes
+
       - name: Contrast
         run: npm run test:contrast
 

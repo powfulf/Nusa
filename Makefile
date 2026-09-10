@@ -89,6 +89,8 @@ lint-go: $(GOLANGCI) ## Run golangci-lint
 lint-web: $(WEB)/node_modules ## Type-check the frontend and verify design tokens
 	cd $(WEB) && npm run typecheck
 	cd $(WEB) && npm run lint:tokens
+	cd $(WEB) && npm run lint:floor
+	cd $(WEB) && npm run lint:bytes
 	cd $(WEB) && npm run test:contrast
 
 .PHONY: fmt
