@@ -131,15 +131,46 @@
   --ease-enter: cubic-bezier(0, 0, 0, 1);
   --ease-exit: cubic-bezier(0.3, 0, 1, 1);
 
-  /* ---- Dense data (DESIGN.md § Dense data patterns) ---- */
+  /* The skeleton pulse, which is far slower than any state change because it
+     is ambient rather than a response to anything. (DESIGN.md § Skeletons) */
+  --motion-pulse: 1200ms;
+
+  /* ---- Skeletons (DESIGN.md § Skeletons).
+         The fill carries the same value as --surface-sunken and is a separate
+         token on purpose: a skeleton is not a sunken surface, it merely shares
+         its colour in this theme, and a dark theme will likely move the two
+         apart. The bar scale is the fraction of the font size the painted bar
+         occupies inside a line box that matches the text exactly. ---- */
+  --skeleton-fill: #f1f5f9;
+  --skeleton-bar-scale: 0.7;
+
+  /* ---- Dense data (DESIGN.md § Dense data patterns) ----
+         AWAITING A CONSUMER: --row-padding-block and --row-padding-inline are
+         referenced by nothing yet. They are not dead — DESIGN.md specifies row
+         padding as 12px 16px, 8px 16px and 4px 16px across the three modes, so
+         they are a correct transcription of the authority — but a token nobody
+         uses is one somebody eventually assumes is load-bearing.
+         TRIGGER: ListRow, M3 step 4. If that lands without consuming them,
+         either it is wrong or these are, and one of the two must go. ---- */
   --row-height: 56px; /* below md; the md override is in the media query */
   --row-padding-block: 12px;
   --row-padding-inline: 16px;
 
   /* ---- Layout ---- */
   --measure-prose: 72ch;
+
+  /* Centred text is harder to read as the line grows, because the eye has to
+     hunt for the start of each line instead of returning to a fixed margin.
+     Empty states are centred, so they cap here. (DESIGN.md § Empty states) */
+  --measure-narrow: 44ch;
+
   --measure-shell: 1280px;
   --touch-target: 44px;
+
+  /* A minimum, never a fixed height: the page title wraps rather than
+     ellipsising, and the bar grows with it. The md override is in the media
+     query below. (DESIGN.md § Top bar) */
+  --topbar-height: 56px;
 }
 
 /*
@@ -151,6 +182,7 @@
   :root {
     --row-height: 48px;
     --row-padding-block: 8px;
+    --topbar-height: 64px;
   }
 }
 
@@ -189,11 +221,13 @@
   --motion-fast: 0ms;
   --motion-base: 0ms;
   --motion-slow: 0ms;
+  --motion-pulse: 0ms;
 }
 
 /*
  * Nothing in Nusa conveys information by movement alone, so collapsing motion
- * loses nothing. State changes still happen; they just happen at once.
+ * loses nothing. State changes still happen; they just happen at once, and a
+ * skeleton simply stops pulsing — its meaning is its shape.
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -201,5 +235,6 @@
     --motion-fast: 0ms;
     --motion-base: 0ms;
     --motion-slow: 0ms;
+    --motion-pulse: 0ms;
   }
 }

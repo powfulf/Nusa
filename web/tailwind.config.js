@@ -92,6 +92,10 @@ export default {
         DEFAULT: 'var(--focus-ring)',
         inverse: 'var(--focus-ring-inverse)',
       },
+
+      // A skeleton is not a sunken surface; it shares that colour today and is
+      // named separately so a dark theme can move the two apart.
+      skeleton: 'var(--skeleton-fill)',
     },
 
     extend: {
@@ -126,6 +130,7 @@ export default {
         '3xl': 'var(--space-3xl)',
         row: 'var(--row-height)',
         touch: 'var(--touch-target)',
+        topbar: 'var(--topbar-height)',
       },
 
       borderRadius: {
@@ -146,7 +151,22 @@ export default {
 
       maxWidth: {
         prose: 'var(--measure-prose)',
+        narrow: 'var(--measure-narrow)',
         shell: 'var(--measure-shell)',
+      },
+
+      // A pulse rather than a shimmer: a shimmer is a travelling gradient, and
+      // gradients are forbidden inside table cells, which is where skeletons
+      // most often appear. Both reduced-motion routes collapse --motion-pulse
+      // to 0ms, which leaves the skeleton a static fill.
+      keyframes: {
+        pulse: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.6' },
+        },
+      },
+      animation: {
+        pulse: 'pulse var(--motion-pulse) var(--ease-standard) infinite',
       },
 
       transitionDuration: {

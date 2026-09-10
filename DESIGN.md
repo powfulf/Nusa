@@ -47,6 +47,22 @@ be rewritten rather than re-themed.
 
 No component ever references a raw colour. Components reference tokens.
 
+### The two places a raw value is unavoidable
+
+Both are technical limits rather than exceptions of taste, and both are named
+here so that they stay narrow. An exception that is merely *unwatched* is how a
+rule quietly stops applying.
+
+| Where | What may be raw | Why nothing else will do |
+| --- | --- | --- |
+| `web/tailwind.config.js`, `screens` block only | the six breakpoint widths | a media query cannot read a custom property |
+| `web/public/manifest.webmanifest` | `theme_color`, `background_color` | a JSON document cannot read a custom property, and the manifest is required to carry both |
+
+The manifest's two values are **checked against the tokens they stand for** by
+`npm run lint:tokens`. A manifest whose colour has drifted from the application
+is a splash screen that flashes a different colour on open, and nothing about
+the file itself would ever say so.
+
 ---
 
 ## Colors
@@ -407,7 +423,8 @@ treatments suppressed.
 **Loading** uses skeletons sized to the content they replace — same line
 height, same number of lines, same column widths. The layout does not shift
 when data arrives. A skeleton that is the wrong size is worse than a spinner,
-because it promises a shape it will not deliver.
+because it promises a shape it will not deliver. The geometry that makes that
+achievable rather than aspirational is specified under § Skeletons.
 
 **Reduced effects.** When `data-effects="reduced"` is set, shadows flatten to a
 1px `--border-subtle` outline and all transitions collapse. Colour, spacing and
@@ -760,6 +777,172 @@ indicator.
 
 A tooltip never carries information available nowhere else, because it is
 unreachable by touch.
+
+---
+
+### Top bar
+
+The bar across the top of every screen. Below `md` it is the only persistent
+chrome above the content, because navigation has moved to a bottom bar; at `md`
+and above it sits beside a persistent sidebar.
+
+| Property | Below `md` | `md` and above |
+| --- | --- | --- |
+| Height | **minimum** 56px | **minimum** 64px |
+| Padding inline | 16px | 24px |
+| Fill | `--surface-default` | `--surface-default` |
+| Border block-end | 1px `--border-subtle` | 1px `--border-subtle` |
+| Content width | capped at `--measure-shell` | capped at `--measure-shell` |
+
+56px is the same figure as a list row below `md`, so the bar comes off the
+scale the rest of the product already uses rather than introducing a height of
+its own.
+
+**The height is a minimum, never a fixed value.** The page title wraps to a
+second line and the bar grows with it. It is never ellipsised: § Internationalization
+makes an important label something that wraps, and a page title is the most
+important label on the screen. A bar with a locked height forces the ellipsis,
+and Indonesian runs 15–20% longer than the English the layout was first seen
+in.
+
+**Contents.**
+
+- **Inline-start: the page title.** H3 below `md`, H2 at `md` and above, in
+  `--text-primary`.
+- **Inline-end: at most two icon actions.** 24px icons in `--text-muted`, each
+  with an `aria-label`, each padded to a 44×44px hit area below `md`.
+
+**Two is the ceiling, and it is a real constraint rather than a preference.** A
+third action competes with the title for a 360px line. A screen that needs more
+needs an overflow menu, and an overflow menu needs a component this system does
+not yet specify — so the screen waits rather than the bar getting crowded.
+
+Destructive and rarely used actions belong here, per § Responsiveness: the top
+of the viewport is hard to reach with a thumb, which is exactly what those
+actions want.
+
+**No wordmark.** The wordmark lives in the sidebar at `md` and above, and below
+`md` it appears in application chrome not at all. On a 360px screen the scarcest
+thing is horizontal space and the most valuable information is *where am I*,
+not *which application is this* — the reader opened it a moment ago. The product
+name stays reachable as text elsewhere, which is what § The name is a separate
+thing from the mark requires anyway.
+
+**Sticky.** The bar sticks to the top of the scrolling container and gains the
+`sm` elevation once content scrolls beneath it — the same treatment § Dense data
+patterns gives a sticky table header, for the same reason.
+
+**Safe area.** The bar is full-bleed and adds `env(safe-area-inset-top)` to its
+block-start padding. The inset region is painted `--surface-default` too, so a
+notch never reveals the page colour running behind the bar.
+
+---
+
+### Empty states
+
+`CLAUDE.md` §7 makes these normative: every empty state teaches something and
+offers one action. This is the shape that satisfies it.
+
+**Anatomy — four parts, in this order.**
+
+| # | Part | Specification |
+| --- | --- | --- |
+| 1 | Icon | 32px, `--text-secondary`, `aria-hidden` |
+| 2 | Heading | H3, `--text-primary` |
+| 3 | Explanation | Body SM, `--text-muted`. At most two sentences, each at most 20 words |
+| 4 | Action | Exactly one Primary button, size md |
+
+The icon is `aria-hidden` because the heading already says the same thing in
+words. That makes it decorative, so the two-role rule does not demand a CONTENT
+value of it.
+
+**Spacing.** Icon → heading 16px. Heading → explanation 8px. Explanation →
+action 24px. Block padding 48px above and below when the empty state fills a
+page region.
+
+**Text column caps at `--measure-narrow` (44 characters)**, not at
+`--measure-prose`. An empty state is centred, and centred text is markedly
+harder to read as the line grows: the eye has to hunt for the start of each
+line rather than returning to a fixed margin.
+
+**One `<Explain>` is permitted inside the explanation, and it is not a second
+action.** It is an inline clarifier on a term, which is what lets an empty state
+teach something without the explanation growing past two sentences.
+
+**Two things an empty state is not.**
+
+**Never shown while data is loading.** "You have no transactions yet" during a
+fetch is a false statement about someone's money. Empty is a conclusion;
+loading is the absence of one. The only permitted progression is
+skeleton → (empty | content), never empty → content.
+
+**Never shown for a failed request.** Empty means there is nothing; failed
+means we do not know. A failure carries the error message pattern — with an
+icon and a word, never colour alone — because this pattern offers an action
+that says *create the first one*, and offering that after a request failed
+invites someone to duplicate something that may already exist.
+
+---
+
+### Skeletons
+
+§ Component states requires a skeleton to be sized to the content it replaces.
+The geometry below is what makes that checkable rather than a good intention.
+
+| Property | Value |
+| --- | --- |
+| Fill | `--skeleton-fill` |
+| Radius, text lines | `--radius-sm` (4px) |
+| Radius, block shapes | the radius of the element being replaced — a card 8px, an avatar full |
+
+`--skeleton-fill` carries the same value as `--surface-sunken` today and is a
+separate token on purpose. A skeleton is not a sunken surface; it merely happens
+to be the same colour in this theme. Tokens are named for what they do, and a
+dark theme is likely to move the two in different directions — a shared name
+would force them to move together.
+
+**The painted bar is not the line box.** The skeleton's line box matches the
+line box of the text it replaces exactly, which is what stops the layout
+shifting. The bar painted inside it is `--skeleton-bar-scale` (0.7) of the font
+size, centred vertically in that box. Body text at 16px/1.6 therefore occupies
+a 25.6px box and paints an 11px bar.
+
+A bar filling the whole line box lays down far more ink than the letterforms
+that will replace it, so the block reads darker than the text does — and the
+page then appears to lighten as data arrives, which reads as a change that did
+not happen.
+
+**Line widths.**
+
+- The **last line** of a multi-line text skeleton is 60% width. Real paragraphs
+  end mid-line, and a stack of equal-width bars reads as a table rather than as
+  prose.
+- A **numeric column** is always full width and aligned to the inline end,
+  never 60%. The column's width is fixed and a short bar misrepresents the
+  alignment, which is most of what a numeric column is for.
+
+**Line count.** Exactly the number of lines the real content will have. Where
+that is not known in advance — a list — the skeleton renders as many rows as the
+page size the query is about to request, so the first page arriving shifts
+nothing.
+
+**Motion: a pulse, never a shimmer.** A shimmer is a travelling gradient, and
+§ Accessibility floor forbids gradients inside table cells, which is where
+skeletons most often appear here. Instead the skeleton pulses its opacity
+between 1 and 0.6 over `--motion-pulse` (1200ms) on `--ease-standard`,
+alternating.
+
+Under `prefers-reduced-motion: reduce` or `data-effects="reduced"` the pulse
+stops and the skeleton is a static fill. Nothing is lost: a skeleton's meaning
+is its shape, not its movement.
+
+**Accessibility.** The container carries `aria-busy="true"` and the bars
+themselves are `aria-hidden`. A single visually hidden live region announces
+loading once. A screen reader must never read out forty empty elements.
+
+**A region is entirely skeleton or entirely real, never a mixture.** A
+half-loaded region makes the page appear to load twice, and both of those
+shifts are the thing a skeleton exists to prevent.
 
 ---
 
