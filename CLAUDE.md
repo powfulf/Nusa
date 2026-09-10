@@ -278,6 +278,13 @@ satisfied by editing the check.
 - Every bug fix starts with a failing test that reproduces it.
 - Coverage target: 85% in `internal/ledger`, 60% elsewhere. Coverage is a floor, not a goal.
 - **A guard is not installed until you have watched it fail.** Decide what it must cover *before* writing it, then break each item on that list in turn and confirm the failure. "The check passes" is not evidence the check works — a check that reads nothing also passes.
+- **A guard needs two lists, and breaking only ever proves the first.** The coverage list answers *what must make this fail*, and a deliberate break settles each item on it. The second list answers *what must **not** make it fail* — and no number of breaks reaches it, because every break you write is wrong code, and the question is about right code.
+
+  A false positive is not a milder failure than a missing check. It is worse in the way that matters: a guard that flags correct code teaches the next contributor to route around it, and a guard people route around has stopped applying while still reporting success — which is the same end state as a check that reads nothing, arrived at through the front door.
+
+  Negative controls covering *correct code of the kind the rule is about* are not enough, and this is the part that is easy to get wrong while feeling thorough. `lint:floor` shipped with a coverage list written first, twenty-one breaks each watched failing, and five negative controls — logical properties, `text-align: end`, a joined array of whole class literals. Every one of those is correct code the rule has an opinion about. Then real code arrived and it flagged `readonly left: string` on an error type, and `` `${id}-error` `` building a DOM identifier for `aria-describedby`. Neither is a rule violation; both merely *resemble* one. The second list has to hold correct code of an entirely **different** kind that happens to look like the banned shape, and nobody thinks of those by introspection.
+
+  So: **a pattern-based guard is not installed until it has been run against a broad corpus of known-good code, not merely against the breaks written for it.** The codebase itself is the corpus, and the moment to run it is before the guard is declared finished — because the alternative is discovering the second list one false positive at a time, in the middle of unrelated work, when the cheap repair looks like an exemption.
 - **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
 - **A break that fails is not a break that fired. Check which mechanism refused it.** The rule above says to check that the test which went red is the one you predicted. This is the second axis of the same discipline, and it is the one that hides longer: check that the thing which *made* it red is the thing you are verifying. A break refused by the compiler proves nothing about a linter. A break refused by a database constraint proves nothing about domain validation. A break refused by a middleware two layers up proves nothing about the handler. **A correct failure arriving through the wrong path is indistinguishable from a successful verification**, because both look like red.
 
@@ -2627,3 +2634,329 @@ failing**:
 | Reading what a command said back | the repository move, printed among the progress lines of a push that succeeded |
 | Checking *which* mechanism refused a break | the first rename's depguard verification, which had never actually tested the rule |
 
+### M3 — decisions taken before any code
+
+Recorded ahead of the implementation, following the precedent set by *M2 split
+into M2a and M2b* and *M2b Phase 2 — decisions taken before any code*: the
+reasoning is about what the frontend is allowed to be, and it is worth having
+on record independently of how the work turns out. The implementation record is
+appended when the milestone completes.
+
+#### The milestone prompt contradicted a normative document, for the second time
+
+`.dev/PROMPT-MILESTONE.md`'s M3 section was written before `DESIGN.md` existed
+and before §8 was split. It specifies a design system this project deliberately
+abandoned: a "Aero" shell of glass and shine, elevation as an accent glow,
+an `AmbientLayer` of drifting bubbles, radii of 20/12/8, and a token called
+`--surface-data`. Against what actually ships, every one of those is either
+forbidden or absent — `DESIGN.md` § Elevation is diffused `#0F172A` at 3–10%,
+Don'ts #9 rules out heavy shadows, § Accessibility floor forbids gradients in
+table cells and text on translucent surfaces, § Border Radius is 4/8/12/16/full
+with cards, buttons and inputs all at 8px, and `--surface-data` is defined
+nowhere.
+
+§8.1 makes `DESIGN.md` the single authority for how Nusa looks, and a prompt is
+not a normative document above it. The prompt was corrected in place and every
+deliverable kept; only the visual instructions were removed.
+
+**This is the second time.** M2b Phase 2 found the same shape: the prompt
+demanded *full CRUD* over a journal §5.3 makes append-only. Both times the
+prompt was the stale document and the normative one won.
+
+> **Rule.** `.dev/` is gitignored, so a corrected prompt binds this session and
+> nothing else. What reaches the next session is `CLAUDE.md` and `DESIGN.md`,
+> which is why the correction is recorded here rather than only there. Expect
+> this conflict again: the prompt was written once, at the start, and the
+> normative documents have been growing ever since. When they disagree, the
+> normative document wins and the prompt is corrected — and the correction is
+> written into §13, because that is the copy that survives.
+
+#### Storybook was rejected; the gallery is a route in the application
+
+The prompt asks for Storybook. It is not being added, and the reason that
+settled it is not the dependency tree.
+
+The dependency argument is real and consistent with how this project has
+behaved — TOTP written over `crypto/hmac` rather than a library, `NewUUIDv7`
+written in fifteen lines rather than promoting `google/uuid`, M0 declining a
+second frontend linter. Storybook brings a second Vite builder, its own lint
+plugin tree, and configuration in `.storybook/` that sits outside
+`lint:tokens`'s reach. And its principal value is a shared surface for
+designers and handoff, which this project has neither of.
+
+**What decided it is §11.** An isolated rendering environment is a fake, and a
+fake is a claim about the real system that nothing tests unless somebody tests
+it. A component proved correct under Storybook's cascade, its providers and its
+own CSS reset has been proved correct in a world that does not ship. That is
+the same failure that put thirteen passing guards on top of an in-memory
+idempotency store which returned exactly what it was handed — which is
+precisely what `jsonb` did not do.
+
+So the gallery is a route inside the application, non-production, rendering
+every primitive in every state. It uses the same tokens, the same stylesheet
+and the same providers as what reaches a user, so there is no second world to
+keep in step. It lives under `src`, so `lint:tokens` already reads it. And
+Playwright can drive it directly.
+
+**Two guards go with it, and both are watched failing before they count.**
+
+- **Enumeration.** An exported primitive with no complete gallery entry fails
+  the build. This is not something lost by declining Storybook — *Storybook
+  never enforced it either*. A component with no story is as invisible to
+  Storybook as a component with no entry is to a gallery. The rule "a component
+  without a complete entry is unfinished" has never been enforceable in either
+  arrangement until it is enumerated, so the alternative ends up stronger than
+  the thing it replaced rather than merely equivalent.
+- **The bundle.** "Non-production" is a claim about our own code, and §11 makes
+  such a claim a candidate for testing rather than a premise. The production
+  bundle is read and the build fails if the gallery is in it.
+
+**What is genuinely lost** is the args/controls panel for poking at props
+interactively. That is convenience, and it was not enough to carry the
+decision. Everything else has a home already: interaction tests in Vitest and
+Testing Library, which are installed; accessibility through the same `axe-core`
+engine driven by Playwright; visual regression through Playwright screenshots;
+prop documentation through TypeScript, which `tsc --noEmit` enforces.
+
+**One consequence to hold on to.** Playwright drives the gallery in dev mode,
+while what a user receives is a production build with Tailwind purged. A class
+name assembled at runtime can live in dev and vanish in production, which is
+the fake-is-more-obedient shape again, one layer down. The remedy is a third
+guard: primitives may not build class names dynamically.
+
+#### Playwright and axe are in M3
+
+The 360px floor and the table-to-card reflow are what end-to-end testing exists
+to check, and there is no other way to prove either. §13 had deferred Playwright
+to "M3–M4"; this settles it as M3.
+
+It is also what makes declining Storybook defensible. A gallery route with
+nothing driving it is a page somebody looks at once.
+
+#### The PWA is split, and ships without a cache
+
+M3 delivers the manifest, the icons, the splash, and a service worker that
+registers and forwards every fetch **while caching nothing**. That is enough
+for installability and takes no risk.
+
+A real caching strategy waits for the shell to stop changing, and lands in M4
+alongside the offline write queue. A service worker caching a shell that is
+still moving fails in the worst way available: it serves something wrong while
+looking perfectly healthy. Workbox is not added — there is nothing yet for it
+to do.
+
+> **Debt, with its trigger.** Read-through caching and the offline write queue
+> land in **M4**, when the shell is stable and there are mutations to queue.
+
+#### The lettermark stays out of the application
+
+`DESIGN.md` § Brand assets records the variant question as unresolved and
+measures the mark at 1.45–2.77:1 against all three light surfaces Nusa ships,
+under a 3:1 floor. Placing it in the shell now would put an asset into the
+interface whose contrast is known to fail. The shell carries a text wordmark
+through i18n instead, which is what §9 asks for anyway — a wordmark is not a
+substitute for a readable label.
+
+> **Debt, with its trigger.** The lettermark enters application chrome when the
+> variant question in `DESIGN.md` § Brand assets is answered — recolour to
+> clear 3:1 on `#ffffff`, `#f8fafc` and `#f1f5f9`, or two variants with every
+> placement knowing its surface. It is answered by that decision, **not** by
+> the AppShell needing something to put in the corner.
+
+#### Three specifications `DESIGN.md` does not have, and six that stay out
+
+The prompt names components `DESIGN.md` does not specify. Inventing them is
+what the prompt itself forbids, so the split is by what M3 actually needs.
+
+**Drafted for approval and then added to `DESIGN.md`:** the top bar, because
+the AppShell cannot be built without it; empty states, because §7 already makes
+them normative ("every empty state teaches something and offers one action")
+and a normative requirement with no specification is a requirement nobody can
+satisfy; and skeleton geometry, because "sized to the content" does not stop
+the layout shifting when data arrives, which is the only thing a skeleton is
+for.
+
+**Out of M3:** Modal, Toast, Select, Badge, Avatar, and the DataTable
+header/sort affordance. None is needed by the primitives, the AppShell or the
+settings screen. Modal and Toast acquire a use case when there are mutations,
+which is M4.
+
+#### `web/public/` needs a named exception, not an invisible one
+
+A survey for configuration outside `lint:tokens`'s reach found three gaps:
+`web/scripts/*.mjs` (outside `SCAN_DIRS`, and `.mjs` is not in `SCAN_EXT`), the
+Playwright configuration and `e2e/` directory that M3 will add, and
+`web/public/`, which is outside `SCAN_DIRS` entirely.
+
+The third is not a gap to close but a **second genuine exception** to "raw
+values live only in `tokens.css`", of exactly the same kind as the breakpoints
+in `tailwind.config.js`. A PWA manifest is required to declare `theme_color`
+and `background_color` as literal hex, and a JSON document cannot read a custom
+property. The point is that it be handled deliberately and narrowly, rather
+than passing because the file happens to be invisible to the guard — which is
+how a rule quietly stops applying.
+
+#### ICU MessageFormat had never formatted a message, from M0 to here
+
+Recorded now rather than at the end of the milestone, because it removed a
+dependency and rewired i18n — the same reason the `jsonb` finding was written
+up mid-phase.
+
+`i18next-icu@2.4.4` imports the formatter as a default export and calls
+`new IntlMessageFormat(...)`. `intl-messageformat@10` has no default export:
+`import x from 'intl-messageformat'` yields the module namespace object, so
+every call threw `TypeError: IntlMessageFormat is not a constructor`. Its
+default `parseErrorHandler` catches exactly that and returns the **unformatted**
+string. So `t('greet', { who: 'Nusa' })` answered `Hi {who}`, and nothing
+anywhere said why.
+
+**It survived three milestones because no message had a placeholder in it.** An
+unformatted string and a formatted one are the same string when there is
+nothing to substitute. M0 recorded "ICU MessageFormat wired from the first
+string" as a decision it had made and proved; what it had proved was that
+language switching works — which it does, and which is a different claim. The
+M0 verification list said "language switching works in the frontend", and every
+item on that list passed.
+
+This is the §13 rule about verification lists arriving in its third costume,
+and the §11 rule about a claim we write about our own code being a candidate
+for testing rather than a premise. It was found by writing the first message
+that needed interpolation, not by any check.
+
+**The fix removes the package.** `web/src/i18n/icu.ts` is a thirty-line
+i18nFormat adapter over `intl-messageformat`, which was already a direct
+dependency — the same reasoning that wrote TOTP over `crypto/hmac` and
+`NewUUIDv7` in fifteen lines rather than promoting `google/uuid`. Two things
+about it are deliberate:
+
+- **A parse failure is loud.** It still returns the raw string rather than
+  blanking a screen over a mistyped catalogue entry, but it reports the key and
+  the error first. Silence is the whole reason this lasted three milestones.
+- **`icu.test.ts` asserts that formatting happens** — interpolation, the
+  English plural categories including `=0`, Indonesian (which has no plural
+  forms), `select`, and that a malformed message is reported rather than
+  swallowed. A wiring that reports success while formatting nothing cannot pass
+  the first of those.
+
+**This is the §11 fake, wearing a third costume, and this time the fake is not
+ours.** The two recorded instances were an in-memory idempotency store better
+behaved than `jsonb`, and a backup-code fake with a different contract from the
+real store. Both were fixtures we wrote. Here the obliging stand-in is a
+*shipped library's own error path*: `parseErrorHandler` is a documented feature
+whose entire purpose is to keep a broken message from reaching a screen, and its
+effect is that the failure branch and the success branch return the same type,
+the same shape, and — for a message with no placeholder — the identical string.
+
+That is the property to name, because it generalises past ICU. A library that
+degrades gracefully has, by construction, made its failure look like its
+success; that is what graceful means. The graceful path is a claim about the
+real system, standing untested, exactly like a fake.
+
+It also sits beside the `LICENSING.md` gap as the same shape at a finer grain,
+and the difference is what makes it worth recording separately. There, what was
+missing was a **file**, and a file's absence is at least visible to anyone who
+goes looking for it. Here what was missing was a **behaviour**, in a wiring that
+was present, imported, initialised, and reported as done. Nothing was absent to
+find.
+
+> **Rule.** A library that fails soft is a library whose failure has to be
+> tested for directly. "It returned a string" is not evidence it did anything:
+> the fallback path and the success path have the same shape, and only an input
+> whose formatted form differs from its source can tell them apart. Ask of any
+> dependency with a fallback: *what input would look different if this were
+> wired up wrong* — and if the answer is "none of the ones we use", the wiring
+> is untested however green the suite is.
+
+#### Breaking a guard proves it fires. It does not prove it fires only when it should
+
+`lint:floor` was installed with a coverage list written first, broken twenty-one
+times, and every break behaved as predicted — including five negative controls.
+Then real code arrived and it produced **two false positives**:
+
+| Flagged | What it actually was |
+| --- | --- |
+| `readonly left: string` | a field on `CommodityMismatchError`, matched by the CSS `left:` pattern |
+| `` `${id}-error` `` | a DOM identifier for `aria-describedby`, matched by the dynamic-class-name pattern |
+
+Neither is a rule violation, and both would have taught the next contributor
+that this guard cries wolf — which is worse than not having the guard, because
+a check people route around is a check that has stopped applying while still
+reporting success.
+
+The negative controls that were written covered *correct code of the kind the
+rule is about*: logical properties, `text-align: end`, a joined array of whole
+class literals. What they did not cover is **correct code of an entirely
+different kind that merely resembles the banned shape**. That is a different
+axis, and no amount of breaking finds it, because breaking only ever asks
+"does it fire when it should".
+
+Both were narrowed rather than exempted: the `left:` pattern now applies only
+to stylesheets, and the class-name patterns now require an actual Tailwind
+utility prefix or value rather than any hyphen next to an interpolation.
+
+> **Rule.** A guard needs two lists, not one. The first is what must make it
+> fail — that is the coverage list, and breaking proves it. The second is what
+> must **not** make it fail: the correct constructs in the same codebase that
+> look like the thing being banned. Nothing about a green run distinguishes a
+> guard with an empty second list from one that never needed it, and the cost
+> of getting it wrong is paid by whoever works around the guard afterwards.
+
+#### Raw control characters, for the fourth time
+
+A byte scan after writing the money layer found a raw U+001F in
+`src/money/format.ts` and three more in `src/i18n/icu.ts`, in cache-key
+templates where ordinary spaces had been written. Nothing was functionally
+wrong — the byte is a perfectly good separator, arguably better than a space
+because it cannot occur in a locale tag or a commodity code — but a character
+no reader can see is one an editor, a linter or a copy-paste eventually eats,
+after which the failure looks like the cache being wrong.
+
+Both are now `'\u001F'` written as an escape and named `SEP`, with the reason
+beside them. This is the same shape as the six 0x1F bytes that reached
+`internal/api/cursor_test.go` in M2b Phase 2, and the fourth appearance of the
+encoding hazard in this project overall.
+
+The scan that found it is two lines and takes a second. It stays part of
+finishing any batch of file writes here.
+
+#### Two dead tokens, found by implementing a comment
+
+`lint-tokens.mjs` claimed in its own comment that "every custom property
+tokens.css defines must be referenced somewhere, and every var() used must be
+defined". Only the second direction was implemented. Implementing the first
+found `--row-padding-block` and `--row-padding-inline`, defined during the
+design-system alignment and consumed by nothing since.
+
+It reports rather than fails today, because a token may legitimately precede
+the component that consumes it within a milestone — `--skeleton-bar-scale` is
+in exactly that state. It becomes a failure at the end of M3.
+
+> **Debt, with its trigger.** Promote the unreferenced-token report to a build
+> failure at the end of M3, when every token has a consumer.
+
+#### Order of work, and why
+
+1. **Guards first, each watched failing** — logical properties, tabular
+   numerals on numeric components, the 44px touch minimum below `md`, no
+   dynamically assembled class names, and the three scan gaps above. §11 puts
+   the coverage list before the guard; a guard written after the components is
+   audited against them. And because the list itself has been short three times
+   now — the latency budget missing `SubtreeBalance`, the disposal guard
+   reading only the body, the OpenAPI guard reading only the value — each item
+   gets the second question: what is the *whole* surface it can go wrong on.
+2. **The Money class, `<Money>`, `<MoneyInput>`** — the one piece whose
+   mistakes are unrecoverable, and the only one with no visual dependency, so
+   it is not blocked by the specifications above.
+3. **The gallery route, empty** — installed before the first primitive, so
+   "unfinished without a complete entry" binds from the first one rather than
+   being retrofitted onto ten.
+4. **Dense-surface primitives first** — ListRow, table row, Input, Chip.
+   `DESIGN.md` and the prompt both say the dense surface is the worst case and
+   is tested first; building the roomy summary card first lets a style pass
+   where it does not matter and fail where it does.
+5. **The rest** — Button, Card, Checkbox, Radio, Tooltip.
+6. **`<Explain>`**, after Tooltip, whose popover behaviour it depends on.
+7. **AppShell, navigation, settings** — where the primitives meet the 360px
+   floor, the safe areas and the one-breakpoint navigation swap.
+8. **PWA last**, for the reason above.
+9. **Contrast pairings re-run, and this record completed.**
