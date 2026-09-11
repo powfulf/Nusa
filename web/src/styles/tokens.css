@@ -95,6 +95,33 @@
   --chip-padding-inline: 12px;
   --chip-tracking: 0.5px;
 
+  /* ---- Buttons (DESIGN.md § Buttons). Three sizes; every value off the
+         8px scale is the document's own, chosen so that 14px and 16px labels
+         centre in 32, 42 and 48px boxes. ---- */
+  --button-sm-height: 32px;
+  --button-sm-padding-block: 6px;
+  --button-sm-padding-inline: 14px;
+  --button-md-height: 42px;
+  --button-md-padding-block: 10px;
+  --button-md-padding-inline: 22px;
+  --button-lg-height: 48px;
+  --button-lg-padding-block: 12px;
+  --button-lg-padding-inline: 28px;
+
+  /* ---- Checkboxes and radios (DESIGN.md § Checkboxes, § Radio Buttons).
+         An 18px box with a 1.5px border; a selected radio grows its border to
+         2px and shows an 8px dot. ---- */
+  --check-size: 18px;
+  --check-border-width: 1.5px;
+  --radio-selected-border-width: 2px;
+  --radio-dot-size: 8px;
+
+  /* ---- Tooltips (DESIGN.md § Tooltips) ---- */
+  --tooltip-max-width: 240px;
+  --tooltip-padding-block: 6px;
+  --tooltip-padding-inline: 12px;
+  --tooltip-arrow-size: 6px;
+
   /* ---- Typography (DESIGN.md § Typography) ---- */
   --font-heading: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;

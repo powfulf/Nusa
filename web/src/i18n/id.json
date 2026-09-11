@@ -56,7 +56,18 @@
       "list": "Daftar",
       "listRow": "Baris daftar",
       "table": "Tabel",
-      "tableRow": "Baris tabel"
+      "tableRow": "Baris tabel",
+      "button": "Tombol",
+      "card": "Kartu",
+      "checkbox": "Kotak centang",
+      "radio": "Tombol radio",
+      "tooltip": "Keterangan singkat",
+      "skeletonText": "Kerangka teks",
+      "skeletonAmount": "Kerangka jumlah",
+      "skeletonBlock": "Kerangka blok",
+      "skeletonRegion": "Wilayah kerangka",
+      "emptyState": "Keadaan kosong",
+      "region": "Wilayah"
     },
     "fixture": {
       "amount": "Jumlah"
@@ -64,5 +75,8 @@
   },
   "list": {
     "pending": "Menunggu sinkron"
+  },
+  "skeleton": {
+    "loading": "Memuat"
   }
 }

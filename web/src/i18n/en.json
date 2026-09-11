@@ -56,7 +56,18 @@
       "list": "List",
       "listRow": "List row",
       "table": "Table",
-      "tableRow": "Table row"
+      "tableRow": "Table row",
+      "button": "Button",
+      "card": "Card",
+      "checkbox": "Checkbox",
+      "radio": "Radio",
+      "tooltip": "Tooltip",
+      "skeletonText": "Skeleton text",
+      "skeletonAmount": "Skeleton amount",
+      "skeletonBlock": "Skeleton block",
+      "skeletonRegion": "Skeleton region",
+      "emptyState": "Empty state",
+      "region": "Region"
     },
     "fixture": {
       "amount": "Amount"
@@ -64,5 +75,8 @@
   },
   "list": {
     "pending": "Waiting to sync"
+  },
+  "skeleton": {
+    "loading": "Loading"
   }
 }

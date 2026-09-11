@@ -138,6 +138,26 @@ export default {
         'input-inline': 'var(--input-padding-inline)',
         'input-label': 'var(--input-label-gap)',
         'chip-inline': 'var(--chip-padding-inline)',
+        'btn-sm': 'var(--button-sm-height)',
+        'btn-sm-block': 'var(--button-sm-padding-block)',
+        'btn-sm-inline': 'var(--button-sm-padding-inline)',
+        'btn-md': 'var(--button-md-height)',
+        'btn-md-block': 'var(--button-md-padding-block)',
+        'btn-md-inline': 'var(--button-md-padding-inline)',
+        'btn-lg': 'var(--button-lg-height)',
+        'btn-lg-block': 'var(--button-lg-padding-block)',
+        'btn-lg-inline': 'var(--button-lg-padding-inline)',
+        check: 'var(--check-size)',
+        'radio-dot': 'var(--radio-dot-size)',
+        tooltip: 'var(--tooltip-max-width)',
+        'tooltip-block': 'var(--tooltip-padding-block)',
+        'tooltip-inline': 'var(--tooltip-padding-inline)',
+        arrow: 'var(--tooltip-arrow-size)',
+      },
+
+      borderWidth: {
+        check: 'var(--check-border-width)',
+        'radio-selected': 'var(--radio-selected-border-width)',
       },
 
       letterSpacing: {

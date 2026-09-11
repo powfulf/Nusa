@@ -1,7 +1,14 @@
-import { CheckCircle2, Landmark, Wallet } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Inbox, Landmark, Plus, Wallet } from 'lucide-react'
 
+import { Button } from '../components/Button'
+import { Card } from '../components/Card'
+import { Checkbox, Radio } from '../components/Choice'
 import { FilterChip, StatusChip } from '../components/Chip'
+import { EmptyState } from '../components/EmptyState'
 import { Input } from '../components/Input'
+import { Region } from '../components/Region'
+import { SkeletonAmount, SkeletonBlock, SkeletonRegion, SkeletonText } from '../components/Skeleton'
+import { Tooltip } from '../components/Tooltip'
 import { LanguageSwitcher } from '../components/LanguageSwitcher'
 import { List, ListRow } from '../components/List'
 import { Money } from '../components/Money'
@@ -75,6 +82,38 @@ const table = (rows: number) => (
       />
     ))}
   </Table>
+)
+
+/** One region, in whichever of its four states the caller asks for. */
+const region = (state: Parameters<typeof Region<string[]>>[0]['state']) => (
+  <Region
+    state={state}
+    skeleton={() => <SkeletonText lines={2} />}
+    empty={() => (
+      <EmptyState
+        icon={<Inbox size={32} strokeWidth={2} />}
+        heading="Belum ada transaksi"
+        explanation="Transaksi adalah uang yang berpindah. Catat yang pertama."
+        action="Catat transaksi"
+        onAction={noop}
+      />
+    )}
+    failed={(error) => (
+      <span className="flex items-center gap-sm text-body-sm text-error-content">
+        <AlertTriangle aria-hidden="true" size={20} strokeWidth={2} />
+        {String(error instanceof Error ? error.message : error)}
+      </span>
+    )}
+    ready={(data) => (
+      <ul className="flex flex-col gap-xs">
+        {data.map((d) => (
+          <li key={d} className="text-body text-text-primary">
+            {d}
+          </li>
+        ))}
+      </ul>
+    )}
+  />
 )
 
 const list = (rows: number, pending = false) => (
@@ -275,6 +314,248 @@ export const entries: GalleryRegistry = {
       loading: { notApplicable: 'a pending row carries a status chip in a cell; see ListRow' },
       error: { notApplicable: 'a row does not fail on its own' },
       empty: { notApplicable: 'a row with no cells is not rendered' },
+    },
+  },
+
+  Button: {
+    titleKey: 'gallery.entry.button',
+    states: {
+      default: {
+        render: () => (
+          <div className="flex flex-wrap items-center gap-sm">
+            <Button variant="primary">Simpan</Button>
+            <Button variant="secondary">Batal</Button>
+            <Button variant="ghost">Lewati</Button>
+            <Button variant="destructive">Hapus</Button>
+            <Button size="sm" icon={<Plus size={20} />}>Tambah</Button>
+            <Button size="lg">Lanjut</Button>
+          </div>
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { interactive: true },
+      disabled: { render: () => <Button disabled>Simpan</Button> },
+      loading: { render: () => <Button loading>Menyimpan</Button> },
+      error: { notApplicable: 'a button does not fail; the action it starts does, and that is reported elsewhere' },
+      empty: { notApplicable: 'a button without a label is not permitted; the label identifies it' },
+    },
+  },
+
+  Card: {
+    titleKey: 'gallery.entry.card',
+    states: {
+      default: (
+        {
+          render: () => (
+            <div className="flex flex-col gap-md">
+              <Card>Kartu bawaan dengan tepi tipis.</Card>
+              <Card variant="elevated">Kartu terangkat dengan bayangan.</Card>
+              <Card header="Kategori">Kartu dengan strip kepala.</Card>
+            </div>
+          ),
+        }
+      ),
+      hover: { notApplicable: 'a card is a surface, not a control; what it holds may be' },
+      focus: { notApplicable: 'a card is not focusable; its contents are' },
+      active: { notApplicable: 'a card is a surface, not a control' },
+      disabled: { notApplicable: 'a surface cannot be disabled' },
+      loading: { notApplicable: 'a loading card is a Region in its loading state' },
+      error: { notApplicable: 'a failed card is a Region in its error state' },
+      empty: { notApplicable: 'an empty card is a Region in its empty state' },
+    },
+  },
+
+  Checkbox: {
+    titleKey: 'gallery.entry.checkbox',
+    states: {
+      default: {
+        render: () => (
+          <div className="flex flex-col gap-xs">
+            <Checkbox label="Sertakan akun yang ditutup" />
+            <Checkbox label="Hanya yang belum dicocokkan" description="Transaksi tanpa pasangan di rekening koran" defaultChecked />
+            <Checkbox label="Semua" indeterminate />
+          </div>
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { interactive: true },
+      disabled: { render: () => <Checkbox label="Sertakan akun yang ditutup" disabled /> },
+      loading: { notApplicable: 'a choice has no loading state; its form does' },
+      error: { notApplicable: 'a single box cannot be invalid; a group can, and the group reports it' },
+      empty: { notApplicable: 'a checkbox with no label is not permitted' },
+    },
+  },
+
+  Radio: {
+    titleKey: 'gallery.entry.radio',
+    states: {
+      default: {
+        render: () => (
+          <div className="flex flex-col gap-xs">
+            <Radio name="g-kind" value="cash" label="Tunai" defaultChecked />
+            <Radio name="g-kind" value="bank" label="Bank" description="Rekening tabungan atau giro" />
+            <Radio name="g-kind" value="ewallet" label="Dompet digital" />
+          </div>
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { interactive: true },
+      disabled: { render: () => <Radio name="g-dis" value="x" label="Tunai" disabled /> },
+      loading: { notApplicable: 'a choice has no loading state; its form does' },
+      error: { notApplicable: 'a single radio cannot be invalid; the group reports it' },
+      empty: { notApplicable: 'a radio with no label is not permitted' },
+    },
+  },
+
+  Tooltip: {
+    titleKey: 'gallery.entry.tooltip',
+    states: {
+      default: {
+        render: () => (
+          <div className="flex gap-md pt-2xl">
+            <Tooltip hint="Tambah transaksi baru">
+              <Button size="sm" icon={<Plus size={20} />}>Tambah</Button>
+            </Tooltip>
+            <Tooltip hint="Muncul di bawah" placement="bottom">
+              <Button size="sm" variant="secondary">Bawah</Button>
+            </Tooltip>
+          </div>
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { notApplicable: 'a tooltip has no pressed state; it is not a control' },
+      disabled: { notApplicable: 'a tooltip on a disabled trigger never opens, because the trigger takes no focus' },
+      loading: { notApplicable: 'a tooltip restates something already on screen; there is nothing to fetch' },
+      error: { notApplicable: 'a tooltip cannot fail' },
+      empty: { notApplicable: 'a tooltip with no hint is not rendered' },
+    },
+  },
+
+  SkeletonText: {
+    titleKey: 'gallery.entry.skeletonText',
+    states: {
+      default: {
+        render: () => (
+          <SkeletonRegion>
+            <SkeletonText lines={3} />
+          </SkeletonRegion>
+        ),
+      },
+      hover: { notApplicable: 'a skeleton is not interactive' },
+      focus: { notApplicable: 'a skeleton is not focusable' },
+      active: { notApplicable: 'a skeleton is not interactive' },
+      disabled: { notApplicable: 'a skeleton has no disabled state' },
+      loading: { notApplicable: 'a skeleton IS the loading state' },
+      error: { notApplicable: 'a skeleton does not fail; the region that owns it does' },
+      empty: { notApplicable: 'a skeleton with zero lines is not rendered' },
+    },
+  },
+
+  SkeletonAmount: {
+    titleKey: 'gallery.entry.skeletonAmount',
+    states: {
+      default: {
+        render: () => (
+          <SkeletonRegion>
+            <div className="flex flex-col gap-xs">
+              <SkeletonAmount />
+              <SkeletonAmount />
+            </div>
+          </SkeletonRegion>
+        ),
+      },
+      hover: { notApplicable: 'a skeleton is not interactive' },
+      focus: { notApplicable: 'a skeleton is not focusable' },
+      active: { notApplicable: 'a skeleton is not interactive' },
+      disabled: { notApplicable: 'a skeleton has no disabled state' },
+      loading: { notApplicable: 'a skeleton IS the loading state' },
+      error: { notApplicable: 'a skeleton does not fail' },
+      empty: { notApplicable: 'a numeric skeleton is always one full-width line' },
+    },
+  },
+
+  SkeletonBlock: {
+    titleKey: 'gallery.entry.skeletonBlock',
+    states: {
+      default: {
+        render: () => (
+          <SkeletonRegion>
+            <div className="flex items-center gap-md">
+              <span className="inline-block size-2xl"><SkeletonBlock height="h-2xl" radius="full" /></span>
+              <span className="flex-1"><SkeletonBlock height="h-row" /></span>
+            </div>
+          </SkeletonRegion>
+        ),
+      },
+      hover: { notApplicable: 'a skeleton is not interactive' },
+      focus: { notApplicable: 'a skeleton is not focusable' },
+      active: { notApplicable: 'a skeleton is not interactive' },
+      disabled: { notApplicable: 'a skeleton has no disabled state' },
+      loading: { notApplicable: 'a skeleton IS the loading state' },
+      error: { notApplicable: 'a skeleton does not fail' },
+      empty: { notApplicable: 'a block with no height is not rendered' },
+    },
+  },
+
+  SkeletonRegion: {
+    titleKey: 'gallery.entry.skeletonRegion',
+    states: {
+      default: {
+        render: () => (
+          <SkeletonRegion>
+            <SkeletonText lines={2} />
+          </SkeletonRegion>
+        ),
+      },
+      hover: { notApplicable: 'a skeleton is not interactive' },
+      focus: { notApplicable: 'a skeleton is not focusable' },
+      active: { notApplicable: 'a skeleton is not interactive' },
+      disabled: { notApplicable: 'a skeleton has no disabled state' },
+      loading: { notApplicable: 'a skeleton region IS the loading state' },
+      error: { notApplicable: 'a skeleton does not fail' },
+      empty: { notApplicable: 'a skeleton region with nothing inside is not rendered' },
+    },
+  },
+
+  EmptyState: {
+    titleKey: 'gallery.entry.emptyState',
+    states: {
+      default: {
+        render: () => (
+          <EmptyState
+            icon={<Inbox size={32} strokeWidth={2} />}
+            heading="Belum ada transaksi"
+            explanation="Transaksi adalah uang yang berpindah. Catat yang pertama."
+            action="Catat transaksi"
+            onAction={noop}
+          />
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { interactive: true },
+      disabled: { notApplicable: 'an empty state always offers its one action; a disabled one would teach nothing' },
+      loading: { notApplicable: 'never shown while loading — enforced by Region, not by discipline' },
+      error: { notApplicable: 'never shown for a failure — enforced by Region, not by discipline' },
+      empty: { notApplicable: 'an empty state IS the empty state' },
+    },
+  },
+
+  Region: {
+    titleKey: 'gallery.entry.region',
+    states: {
+      default: { render: () => region({ kind: 'ready', data: ['Warung Bu Sri', 'Indomaret'] }) },
+      hover: { notApplicable: 'a region is a container; its contents may be interactive' },
+      focus: { notApplicable: 'a region is not focusable' },
+      active: { notApplicable: 'a region is a container' },
+      disabled: { notApplicable: 'a region cannot be disabled' },
+      loading: { render: () => region({ kind: 'loading' }) },
+      error: { render: () => region({ kind: 'error', error: new Error('tidak terhubung') }) },
+      empty: { render: () => region({ kind: 'empty' }) },
     },
   },
 

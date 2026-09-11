@@ -118,6 +118,31 @@
 }
 
 /*
+ * Skeleton geometry, DESIGN.md § Skeletons.
+ *
+ * The line takes the type step's own line height, so its box is exactly the
+ * box the text will occupy. The bar inside is --skeleton-bar-scale of the
+ * font size — 1em here is the font size of the step the line carries — so a
+ * Body line at 16px/1.6 is a 25.6px box painting an 11px bar. Nothing moves
+ * when the words arrive, and the block does not read darker than the text it
+ * stands in for.
+ */
+@layer components {
+  .skeleton-line {
+    block-size: calc(1em * var(--leading-body));
+  }
+  .skeleton-line.text-body-sm {
+    block-size: calc(1em * var(--leading-body-sm));
+  }
+  .skeleton-line.text-caption {
+    block-size: calc(1em * var(--leading-caption));
+  }
+  .skeleton-bar {
+    block-size: calc(1em * var(--skeleton-bar-scale));
+  }
+}
+
+/*
  * Table-to-card reflow, DESIGN.md § Dense data patterns.
  *
  * Below md the table becomes a list of cards, and it does so in CSS so that
