@@ -27,5 +27,32 @@
     "too_precise": "{commodity} dihitung sampai {scale, plural, =0 {satuan utuh} other {# angka di belakang koma}}.",
     "unknown_commodity": "Kami belum tahu bagaimana {commodity} dihitung.",
     "unparseable": "Itu belum bisa dibaca sebagai jumlah. Coba 1500000 atau 1,5jt."
+  },
+  "gallery": {
+    "title": "Galeri komponen",
+    "effects": {
+      "normal": "Seperti yang dikirim",
+      "reduced": "Dengan efek visual dikurangi"
+    },
+    "state": {
+      "default": "Bawaan",
+      "hover": "Disorot",
+      "focus": "Fokus",
+      "active": "Aktif",
+      "disabled": "Nonaktif",
+      "loading": "Memuat",
+      "error": "Galat",
+      "empty": "Kosong"
+    },
+    "driven_by_playwright": "Keadaan penunjuk atau papan ketik. Uji ujung-ke-ujung menggerakkannya dari keadaan bawaan.",
+    "not_applicable": "Primitif ini tidak punya keadaan tersebut.",
+    "entry": {
+      "money": "Jumlah",
+      "moneyInput": "Kolom jumlah",
+      "languageSwitcher": "Pemilih bahasa"
+    },
+    "fixture": {
+      "amount": "Jumlah"
+    }
   }
 }

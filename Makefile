@@ -91,6 +91,7 @@ lint-web: $(WEB)/node_modules ## Type-check the frontend and verify design token
 	cd $(WEB) && npm run lint:tokens
 	cd $(WEB) && npm run lint:floor
 	cd $(WEB) && npm run lint:bytes
+	cd $(WEB) && npm run check:gallery
 	cd $(WEB) && npm run test:contrast
 
 .PHONY: fmt

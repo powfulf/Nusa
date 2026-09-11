@@ -18,7 +18,7 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
 
-    "types": ["vitest/globals", "node"]
+    "types": ["vite/client", "vitest/globals", "node"]
   },
   "include": ["src", "vite.config.ts", "tailwind.config.js", "postcss.config.js"]
 }

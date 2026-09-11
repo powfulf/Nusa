@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { HealthCard } from './components/HealthCard'
+import { HealthCard } from './screens/HealthCard'
 import { LanguageSwitcher } from './components/LanguageSwitcher'
 
 export function App() {

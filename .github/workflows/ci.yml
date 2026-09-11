@@ -164,6 +164,15 @@ jobs:
       - name: Test
         run: npm test
 
+      # Builds the frontend twice and reads the output. Production must not
+      # contain the component gallery; a development-mode build must — the
+      # second assertion is what stops the first from passing by reading
+      # nothing. It leaves a production build in dist/, which the Build step
+      # below then repeats — cheaply, and so that a failure there is reported
+      # under its own name rather than inside this check's output.
+      - name: Gallery stays out of the production bundle
+        run: npm run check:gallery
+
       - name: Build
         run: npm run build
 

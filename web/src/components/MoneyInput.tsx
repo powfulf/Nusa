@@ -15,6 +15,13 @@ export interface MoneyInputProps {
   readonly name?: string
   readonly required?: boolean
   readonly disabled?: boolean
+  /**
+   * Text to start with when there is no value. The error state of an input is
+   * a consequence of what was typed, so a fixture or an end-to-end test that
+   * needs to show it has to be able to supply the typing — a value the
+   * commodity cannot hold is not a Money, so it cannot arrive through `value`.
+   */
+  readonly initialText?: string
 }
 
 interface Parsed {
@@ -55,6 +62,7 @@ export function MoneyInput({
   name,
   required,
   disabled,
+  initialText,
 }: MoneyInputProps) {
   const { t } = useTranslation()
   const { registry, locale } = useMoneyContext()
@@ -63,9 +71,13 @@ export function MoneyInput({
   // The text is what the person typed; `value` is what it meant. Keeping both
   // means an in-progress "1," is not reformatted out from under them mid-word.
   const [text, setText] = useState(() =>
-    value === null ? '' : formatMoney(value, registry, { locale, withSymbol: false }),
+    value === null
+      ? (initialText ?? '')
+      : formatMoney(value, registry, { locale, withSymbol: false }),
   )
-  const [errorKey, setErrorKey] = useState<string | null>(null)
+  const [errorKey, setErrorKey] = useState<string | null>(() =>
+    value === null && initialText !== undefined ? read(initialText).errorKey : null,
+  )
 
   function read(next: string): Parsed {
     if (next.trim() === '') return { money: null, errorKey: null }

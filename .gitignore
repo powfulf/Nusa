@@ -40,3 +40,6 @@ web/.vite/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local editor/tool state
+.claude/

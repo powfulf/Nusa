@@ -27,5 +27,32 @@
     "too_precise": "{commodity} is counted to {scale, plural, =0 {whole units} one {# decimal place} other {# decimal places}}.",
     "unknown_commodity": "We do not know how {commodity} is counted yet.",
     "unparseable": "That is not an amount we can read. Try 1500000 or 1.5m."
+  },
+  "gallery": {
+    "title": "Component gallery",
+    "effects": {
+      "normal": "As shipped",
+      "reduced": "With reduced visual effects"
+    },
+    "state": {
+      "default": "Default",
+      "hover": "Hover",
+      "focus": "Focus",
+      "active": "Active",
+      "disabled": "Disabled",
+      "loading": "Loading",
+      "error": "Error",
+      "empty": "Empty"
+    },
+    "driven_by_playwright": "A pointer or keyboard state. The end-to-end suite drives it against the default.",
+    "not_applicable": "This primitive has no such state.",
+    "entry": {
+      "money": "Amount",
+      "moneyInput": "Amount field",
+      "languageSwitcher": "Language switcher"
+    },
+    "fixture": {
+      "amount": "Amount"
+    }
   }
 }
