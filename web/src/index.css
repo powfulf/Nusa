@@ -131,7 +131,7 @@
  * end, so a column of amounts still lines up when there is no column.
  */
 @layer components {
-  @media (max-width: 767px) {
+  @media not all and (min-width: theme('screens.md')) {
     .table-reflow thead {
       position: absolute;
       inline-size: 1px;

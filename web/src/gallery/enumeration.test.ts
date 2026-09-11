@@ -52,6 +52,38 @@ function isComponent(value: unknown): boolean {
   )
 }
 
+/*
+ * The independent source of truth the §11 enumeration rule demands.
+ *
+ * The runtime enumeration above can be blind — it was, to forwardRef — and no
+ * break finds blindness, because a break is written in the guard's own
+ * vocabulary. So the same files are read a second way, as text, and every
+ * PascalCase `export function` / `export const` is collected without any
+ * opinion about what it is. The two views must agree. When they do not, one of
+ * them is not seeing something, and the test names it rather than picking a
+ * side.
+ *
+ * A PascalCase export that is genuinely not a component — a constant, a
+ * config object — is declared here by name. That is the reconciliation being
+ * forced: it cannot be quietly ignored by either view.
+ */
+const sources = import.meta.glob<string>(
+  ['../components/*.tsx', '!../components/*.test.tsx'],
+  { eager: true, query: '?raw', import: 'default' },
+)
+
+const KNOWN_NOT_COMPONENTS: ReadonlySet<string> = new Set<string>([])
+
+function staticallyExported(): Set<string> {
+  const names = new Set<string>()
+  for (const text of Object.values(sources)) {
+    for (const m of text.matchAll(/^export (?:function|const) ([A-Z][A-Za-z0-9]*)\b/gm)) {
+      if (m[1] !== undefined) names.add(m[1])
+    }
+  }
+  return names
+}
+
 /** Component names actually exported from src/components, by file. */
 function discovered(): Map<string, string> {
   const found = new Map<string, string>()
@@ -110,6 +142,20 @@ describe('the gallery enumerates every primitive', () => {
       }
     }
     expect(problems).toEqual([])
+  })
+
+  it('sees, at runtime, every PascalCase export the source text declares', () => {
+    const runtime = new Set(discovered().keys())
+    const declared = staticallyExported()
+    expect(declared.size, 'the static scan read nothing').toBeGreaterThan(0)
+
+    const unseen = [...declared].filter((n) => !runtime.has(n) && !KNOWN_NOT_COMPONENTS.has(n))
+    const unexpected = [...runtime].filter((n) => !declared.has(n))
+    const stale = [...KNOWN_NOT_COMPONENTS].filter((n) => !declared.has(n) || runtime.has(n))
+
+    expect(unseen, 'seen by the static scan but not the runtime enumeration').toEqual([])
+    expect(unexpected, 'enumerated at runtime but not declared in source').toEqual([])
+    expect(stale, 'listed as not-a-component but missing, or actually a component').toEqual([])
   })
 
   it('names a message key for every entry heading', () => {

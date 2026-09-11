@@ -58,6 +58,32 @@ rule quietly stops applying.
 | `web/tailwind.config.js`, `screens` block only | the six breakpoint widths | a media query cannot read a custom property |
 | `web/public/manifest.webmanifest` | `theme_color`, `background_color` | a JSON document cannot read a custom property, and the manifest is required to carry both |
 
+**A breakpoint lives in the `screens` block and nowhere else, including
+stylesheets.** A media query in `tokens.css` or `index.css` reads it back as
+`theme('screens.md')`, which the build resolves; the "below `md`" band is
+written `not all and (min-width: theme('screens.md'))` rather than as a
+`max-width` one pixel short. Until M3 both stylesheets carried `768px` and
+`767px` of their own, so a change to the breakpoint would have moved the
+utilities and left the tokens behind. `lint:tokens` now refuses a number
+inside any `@media` in a stylesheet.
+
+### One thing that looks like an exception and is not
+
+The functional floor in `CLAUDE.md` §8.2 requires logical properties
+throughout, and `lint:floor` refuses the physical spacing utilities `ml-`,
+`mr-`, `pl-`, `pr-` and their CSS equivalents. It permits `px-`, `py-`, `mx-`
+and `my-`, which Tailwind compiles to `padding-left` **and** `padding-right`
+together.
+
+That is deliberate, and the reason is the whole test: the floor exists so
+that RTL is a stylesheet change rather than a rewrite. A physical property is
+a hazard exactly when it names *one* side, because under RTL that side is the
+wrong one. A symmetric pair names both sides with the same value, and
+mirroring it produces itself. It carries no direction, so it carries no
+hazard, and refusing it would replace every `px-md` with `ps-md pe-md` for no
+change in any rendered layout. The guard bans what would break, not what
+resembles what would break.
+
 The manifest's two values are **checked against the tokens they stand for** by
 `npm run lint:tokens`. A manifest whose colour has drifted from the application
 is a splash screen that flashes a different colour on open, and nothing about

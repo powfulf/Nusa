@@ -285,6 +285,11 @@ satisfied by editing the check.
   Negative controls covering *correct code of the kind the rule is about* are not enough, and this is the part that is easy to get wrong while feeling thorough. `lint:floor` shipped with a coverage list written first, twenty-one breaks each watched failing, and five negative controls — logical properties, `text-align: end`, a joined array of whole class literals. Every one of those is correct code the rule has an opinion about. Then real code arrived and it flagged `readonly left: string` on an error type, and `` `${id}-error` `` building a DOM identifier for `aria-describedby`. Neither is a rule violation; both merely *resemble* one. The second list has to hold correct code of an entirely **different** kind that happens to look like the banned shape, and nobody thinks of those by introspection.
 
   So: **a pattern-based guard is not installed until it has been run against a broad corpus of known-good code, not merely against the breaks written for it.** The codebase itself is the corpus, and the moment to run it is before the guard is declared finished — because the alternative is discovering the second list one false positive at a time, in the middle of unrelated work, when the cheap repair looks like an exemption.
+- **A guard that enumerates must prove it is looking at the whole set, not merely that what it counted is judged correctly.** The two-lists rule above is about a guard that *misjudges* something it sees. This is a different failure: the guard does not see it at all, and reports a smaller number with complete confidence. The gallery enumeration guard tested `typeof value === 'function'` and reported two primitives missing entries when three had none — `<Input>` is a `forwardRef`, which is an object, and the guard walked straight past it.
+
+  A false positive is loud; a false negative is silent. The silent one is the more dangerous, and **no break finds it**, because every break produces a violation the guard can already see — a break is written in the guard's own vocabulary. The forwardRef gap was found by counting the files by hand and noticing the number was wrong, which is not a method.
+
+  So: **every enumerating guard carries a count assertion against a source of truth independent of its own enumeration** — a second way of arriving at the set, and a failure when the two disagree. Not "the enumeration found more than zero", which the comparator rule already demands; that proves the guard read *something*. This proves it read *everything*. The two views need not be equally precise: a rough static scan that over-counts is fine, because a disagreement in either direction forces somebody to reconcile the two, and reconciling is where the blind spot gets named.
 - **Breaking the implementation is half of it. Check that what failed is what you expected to fail.** A guard can fire for a reason other than the one written on it, and neither a green run nor a red one shows the difference — the break produces a failure, the failure is taken as proof, and the claim in the comment is never tested at all. So name the test you expect to go red *before* running the break, and when a different one goes red instead, the comment is what is wrong. A guard whose stated claim is false is worse than a missing guard, because the next reader stops looking.
 - **A break that fails is not a break that fired. Check which mechanism refused it.** The rule above says to check that the test which went red is the one you predicted. This is the second axis of the same discipline, and it is the one that hides longer: check that the thing which *made* it red is the thing you are verifying. A break refused by the compiler proves nothing about a linter. A break refused by a database constraint proves nothing about domain validation. A break refused by a middleware two layers up proves nothing about the handler. **A correct failure arriving through the wrong path is indistinguishable from a successful verification**, because both look like red.
 
@@ -2999,6 +3004,87 @@ requires a class boundary after the value, since no class name contains a
 decimal point. Three false positives from one guard, each found by real code
 after the second list was thought complete, is the strongest evidence yet for
 the §11 rule that the corpus is the codebase and not the breaks.
+
+#### The sixth comparator that compared nothing — and it was two builds, not one input
+
+The gallery bundle guard builds the frontend twice and reads the output:
+production must not contain the gallery's marker string, and a
+development-mode build must. The second assertion is there because the §11
+comparator rule says a check must prove both sides are non-empty before
+comparing them.
+
+On its first run the production check passed and the development check
+failed, and the two builds were **byte-identical** — 379.112 bytes each, no
+marker in either. The route had been gated on `import.meta.env.DEV`, which is
+`false` under `vite build` in *every* mode; `--mode` selects an `.env` file and
+nothing else. The gallery could never have entered a build, so "not in the
+production bundle" was true for a reason that had nothing to do with the gate,
+and the guard would have passed forever while proving nothing.
+
+**What caught it was the second assertion, not the primary one.** The primary
+assertion was green. This is the comparator rule proved on an axis nobody had
+named before: not "the input was empty", but *"two conditions that were
+supposed to differ turned out to be the same condition"*. Both sides were
+non-empty. They were merely identical, and a comparison between identical
+things is as empty as one between nothing and nothing.
+
+The gate is now `import.meta.env.MODE === 'development'`, which Vite replaces
+with a literal so the branch is still dead code in production, and the
+development build now carries a second chunk with the marker in it. Sixth
+instance of the category.
+
+> **Rule.** "Both sides non-empty" is necessary and not sufficient. Where a
+> check compares two *conditions* rather than two *inputs* — a build with a
+> flag and a build without, a request with a header and one without — assert
+> that the two conditions actually produced different artefacts before
+> reading anything into the comparison. Two identical builds compared to each
+> other is a check that reads nothing, wearing more bytes.
+
+#### The enumeration guard was blind, not wrong
+
+Recorded here as the instance behind the §11 rule on enumerating guards. The
+gallery guard reported two primitives without entries when three had none.
+`Input` is a `forwardRef`, an object rather than a function, and
+`typeof value === 'function'` never saw it. The guard was not misjudging Input;
+it did not know Input existed.
+
+Nothing in thirteen deliberate breaks could have found this, because a break is
+a violation written in the guard's own vocabulary — one more function without
+an entry, which it would see. It was found by counting the files and noticing
+the number was short. The guard now recognises React's `$$typeof` and carries
+a cross-check: a static scan of the same files for PascalCase exports, which
+must agree with the runtime enumeration or name the difference. A break that
+reverts the detection now goes red on that cross-check, not merely on a stale
+entry.
+
+#### Two defects only a real browser can show — the reasons Playwright is not optional
+
+Both were found by reading `getComputedStyle` on the gallery at 360px and at
+1200px. Neither is visible to a static guard, and neither is visible to jsdom,
+which does not lay out and does not resolve a stylesheet's cascade. They are
+recorded with their shapes so that a session tempted to defer Playwright knows
+what it would be deferring.
+
+**A utility that sets every side at higher specificity.** `divide-y
+divide-border-divider` on a list sets `border-color` on *all four sides* of
+every child, through a `> :not([hidden]) ~ :not([hidden])` selector whose
+specificity beats the child's own class. The selected row's 2px inline-start
+bar, which DESIGN.md paints in `--brand-content`, was rendering in the divider
+colour — `rgb(241, 245, 249)` where `rgb(4, 120, 87)` was specified. Every
+Vitest assertion about that row passed; the class was present. Only the
+computed colour was wrong. The colour now comes from per-side utilities on the
+row, and `divide-y` sets the width alone.
+
+**A border that grows on focus moves everything beside it.** DESIGN.md
+specifies a 1px border at rest and 2px on focus. Implemented literally, the
+input's box grows by two pixels when it gains focus and every sibling shifts.
+The picture is now made with a 1px border plus a 1px inset box-shadow — the
+same 2px to the eye, zero pixels of layout change — and the reason is in
+`index.css` beside the rule.
+
+The first is a specificity interaction between two correct utilities. The
+second is a spec that is correct as drawn and wrong as built. **Both classes
+recur**, and there is no layer below a real layout engine that can see either.
 
 #### Order of work, and why
 

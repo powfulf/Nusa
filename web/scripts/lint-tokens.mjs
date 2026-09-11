@@ -155,6 +155,16 @@ for (const absolute of files) {
       }
     }
 
+    // 3b. A breakpoint written as a number in a stylesheet. The screens block
+    //     in tailwind.config.js is the one place a breakpoint lives; a media
+    //     query in CSS reads it through theme('screens.md'), which Tailwind
+    //     resolves at build time. Before this rule, tokens.css and index.css
+    //     each carried 768px and 767px of their own, and a change to the
+    //     breakpoint would have moved the utilities and not the tokens.
+    if (/\.css$/.test(file) && /@media[^{]*\d+(px|em|rem)/.test(text)) {
+      report(file, line, text, "raw breakpoint in a media query — use theme('screens.<name>')")
+    }
+
     // 4. tailwind.config.js may hold breakpoints and nothing else raw.
     if (isTailwind) {
       const raw = text.match(/'(\d+)px'/)
