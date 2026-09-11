@@ -49,10 +49,20 @@
     "entry": {
       "money": "Jumlah",
       "moneyInput": "Kolom jumlah",
-      "languageSwitcher": "Pemilih bahasa"
+      "languageSwitcher": "Pemilih bahasa",
+      "filterChip": "Chip penyaring",
+      "statusChip": "Chip status",
+      "input": "Kolom teks",
+      "list": "Daftar",
+      "listRow": "Baris daftar",
+      "table": "Tabel",
+      "tableRow": "Baris tabel"
     },
     "fixture": {
       "amount": "Jumlah"
     }
+  },
+  "list": {
+    "pending": "Menunggu sinkron"
   }
 }

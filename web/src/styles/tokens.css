@@ -75,6 +75,25 @@
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
 
+  /* The soft halo DESIGN.md § Inputs specifies around a focused or errored
+     field, in addition to the 2px border. Alpha over the input's own white
+     fill; never the sole focus indicator, which stays the solid ring. */
+  --focus-ring-soft: #0f172a18;
+  --focus-ring-soft-error: #b91c1c18;
+  --focus-ring-soft-width: 3px;
+
+  /* ---- Inputs (DESIGN.md § Inputs). 10px and 14px are off the 8px scale on
+         purpose: a 42px field with 16px text needs exactly this padding to
+         centre, and the document says so explicitly. ---- */
+  --input-height: 42px;
+  --input-padding-block: 10px;
+  --input-padding-inline: 14px;
+  --input-label-gap: 6px;
+
+  /* ---- Chips (DESIGN.md § Chips) ---- */
+  --chip-padding-inline: 12px;
+  --chip-tracking: 0.5px;
+
   /* ---- Typography (DESIGN.md § Typography) ---- */
   --font-heading: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-body: 'DM Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;

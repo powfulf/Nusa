@@ -129,9 +129,21 @@ export default {
         '2xl': 'var(--space-2xl)',
         '3xl': 'var(--space-3xl)',
         row: 'var(--row-height)',
+        'row-block': 'var(--row-padding-block)',
+        'row-inline': 'var(--row-padding-inline)',
         touch: 'var(--touch-target)',
         topbar: 'var(--topbar-height)',
+        input: 'var(--input-height)',
+        'input-block': 'var(--input-padding-block)',
+        'input-inline': 'var(--input-padding-inline)',
+        'input-label': 'var(--input-label-gap)',
+        'chip-inline': 'var(--chip-padding-inline)',
       },
+
+      letterSpacing: {
+        chip: 'var(--chip-tracking)',
+      },
+
 
       borderRadius: {
         sm: 'var(--radius-sm)',

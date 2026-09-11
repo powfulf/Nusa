@@ -1,7 +1,9 @@
-import { useId, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { formatMoney } from '../money/format'
+import { Input } from './Input'
+
+import { formatMoney, unitFor } from '../money/format'
 import { Money as MoneyValue } from '../money/money'
 import { MoneyParseError, PrecisionError, parseMoney } from '../money/parse'
 import { useMoneyContext } from '../money/context'
@@ -45,14 +47,10 @@ interface Parsed {
  * field prints back what it understood, formatted, underneath — so a wrong
  * reading is visible before it is saved rather than discovered in a balance.
  *
- * DESIGN.md § Inputs governs the chrome. The visible label is mandatory: the
- * field's fill is identical to the card behind it, so its border does no
- * identifying work and the label is the control's real marker. A placeholder
- * is not a label — it disappears exactly when it is needed.
- *
- * The error is never signalled by border colour alone; the error text is
- * present and associated for assistive technology whenever the field is in
- * error.
+ * The chrome — label, border, focus, error association — is `<Input>`'s, so
+ * that every field in the product shares one implementation of DESIGN.md
+ * § Inputs. This component owns only what is specific to money: the parser,
+ * the echo, the unit adornment, and the refusal to round.
  */
 export function MoneyInput({
   labelKey,
@@ -66,7 +64,6 @@ export function MoneyInput({
 }: MoneyInputProps) {
   const { t } = useTranslation()
   const { registry, locale } = useMoneyContext()
-  const id = useId()
 
   // The text is what the person typed; `value` is what it meant. Keeping both
   // means an in-progress "1," is not reformatted out from under them mid-word.
@@ -102,53 +99,32 @@ export function MoneyInput({
 
   const parsed = read(text)
   const scale = registry.has(commodity) ? registry.scaleOf(commodity) : 0
-  const errorId = `${id}-error`
-  const echoId = `${id}-echo`
 
   // Shown only when the field is understood and not empty: echoing nothing, or
   // echoing a value the field just rejected, would be noise exactly when the
   // reader needs the message instead.
   const echo =
     parsed.errorKey === null && parsed.money !== null
-      ? formatMoney(parsed.money, registry, { locale })
-      : null
+      ? t('money.reads_as', { value: formatMoney(parsed.money, registry, { locale }) })
+      : undefined
 
   return (
-    <div className="flex flex-col">
-      <label htmlFor={id} className="mb-xs text-body-sm font-medium text-text-primary">
-        {t(labelKey)}
-      </label>
-
-      <input
-        id={id}
-        name={name}
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        required={required}
-        disabled={disabled}
-        value={text}
-        onChange={(event) => handle(event.target.value)}
-        aria-invalid={errorKey !== null}
-        aria-describedby={errorKey !== null ? errorId : echo !== null ? echoId : undefined}
-        className={[
-          'numeric min-h-touch rounded border bg-surface px-md py-sm text-body text-text-primary md:min-h-0',
-          'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:opacity-40',
-          errorKey !== null ? 'border-error-content' : 'border-border-subtle',
-        ].join(' ')}
-      />
-
-      {errorKey !== null && (
-        <p id={errorId} role="alert" className="mt-xs text-caption text-error-content">
-          {t(errorKey, { commodity, scale })}
-        </p>
-      )}
-
-      {errorKey === null && echo !== null && (
-        <p id={echoId} className="mt-xs text-caption text-text-muted">
-          {t('money.reads_as', { value: echo })}
-        </p>
-      )}
-    </div>
+    <Input
+      label={t(labelKey)}
+      name={name}
+      type="text"
+      inputMode="decimal"
+      autoComplete="off"
+      required={required}
+      disabled={disabled}
+      numeric
+      // The unit sits inside the field so the reader knows what they are
+      // typing into; the echo below carries the fully formatted result.
+      adornment={registry.has(commodity) ? unitFor(registry.get(commodity), locale) : commodity}
+      value={text}
+      onChange={(event) => handle(event.target.value)}
+      error={errorKey !== null ? t(errorKey, { commodity, scale }) : undefined}
+      helper={echo}
+    />
   )
 }

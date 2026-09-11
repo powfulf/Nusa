@@ -49,10 +49,20 @@
     "entry": {
       "money": "Amount",
       "moneyInput": "Amount field",
-      "languageSwitcher": "Language switcher"
+      "languageSwitcher": "Language switcher",
+      "filterChip": "Filter chip",
+      "statusChip": "Status chip",
+      "input": "Text field",
+      "list": "List",
+      "listRow": "List row",
+      "table": "Table",
+      "tableRow": "Table row"
     },
     "fixture": {
       "amount": "Amount"
     }
+  },
+  "list": {
+    "pending": "Waiting to sync"
   }
 }

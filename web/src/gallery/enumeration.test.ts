@@ -34,12 +34,30 @@ const modules = import.meta.glob<Record<string, unknown>>(
 
 const isComponentName = (name: string) => /^[A-Z][A-Za-z0-9]*$/.test(name)
 
+/*
+ * A component is a function — or a forwardRef / memo wrapper, which is a plain
+ * object carrying React's $$typeof tag. The first version of this guard tested
+ * `typeof value === 'function'` only, and reported two missing entries when
+ * three primitives had none: <Input> is a forwardRef, and the guard could not
+ * see it. A false NEGATIVE in an enumerating guard is the silent kind — it
+ * does not cry wolf, it simply never notices the wolf.
+ */
+function isComponent(value: unknown): boolean {
+  if (typeof value === 'function') return true
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    '$$typeof' in value &&
+    typeof (value as { $$typeof: unknown }).$$typeof === 'symbol'
+  )
+}
+
 /** Component names actually exported from src/components, by file. */
 function discovered(): Map<string, string> {
   const found = new Map<string, string>()
   for (const [file, mod] of Object.entries(modules)) {
     for (const [name, value] of Object.entries(mod)) {
-      if (typeof value === 'function' && isComponentName(name)) found.set(name, file)
+      if (isComponent(value) && isComponentName(name)) found.set(name, file)
     }
   }
   return found
