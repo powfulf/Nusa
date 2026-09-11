@@ -1,7 +1,7 @@
 import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
-import { Registry, UnknownCommodityError } from './commodity'
+import { Registry, UnknownCommodityError, type Commodity } from './commodity'
 import { formatDigits, formatMoney } from './format'
 import { CommodityMismatchError, Money } from './money'
 import { MoneyParseError, PrecisionError, parseMoney } from './parse'
@@ -23,27 +23,58 @@ import { MoneyParseError, PrecisionError, parseMoney } from './parse'
  *                    that actually exist (IDX whole shares, currencies, some
  *                    funds, BTC, ETH) and 3 is included because it is the one
  *                    that collides with three-digit grouping.
- *   locale           en-US (group , decimal .), id-ID and de-DE (group .
- *                    decimal ,), sv-SE (group U+00A0, minus U+2212). The last
- *                    exists to catch a parser that only strips ASCII space and
- *                    only accepts a hyphen.
- *   commodity code   three-letter (Intl finds a symbol) and longer (it does
- *                    not), so both branches of symbolFor are exercised.
+ *   commodity kind   currency, and non-currency (equity / metal / crypto).
+ *                    The two take different unit rules — symbol placed by the
+ *                    locale versus code as a trailing unit of measure — and a
+ *                    generator that only ever produced currencies would have
+ *                    left the second rule compared against nothing. This axis
+ *                    was missing in the first version of this file.
+ *   currency code    IDR, USD, EUR — chosen so that within one locale the
+ *                    symbol is sometimes a glyph ($, €) and sometimes the ISO
+ *                    code (IDR in en-US), which are different Intl parts.
+ *   locale           en-US (group , decimal . symbol LEADS with no space),
+ *                    id-ID (group . decimal , symbol LEADS with NBSP),
+ *                    de-DE (group . decimal , symbol TRAILS with NBSP),
+ *                    fr-FR (group U+202F decimal , symbol TRAILS with NBSP),
+ *                    sv-SE (group U+00A0, minus U+2212).
+ *                    Symbol position is the axis the first version of this
+ *                    file never varied: en-US and id-ID both lead, so the
+ *                    trailing case was compared against nothing. de-DE and
+ *                    fr-FR are here because they are the ones that differ,
+ *                    not because they are convenient.
+ *   withSymbol       true and false. A column heading that carries the unit
+ *                    omits it from every cell, and that path was previously
+ *                    covered by one hand-written case only.
  *
  * DELIBERATELY NOT VARIED, and why
- *   registry         built per case from the scale above; varying its other
+ *   registry         built per case from the commodity above; its other
  *                    entries would change nothing any assertion reads.
- *   CommodityKind    carried through untouched; no arithmetic or formatting
- *                    consults it. If that ever changes, this line is wrong.
+ *   minus position   always beside the digits, never beside the symbol. This
+ *                    is the one place formatting departs from the locale, by
+ *                    decision (DESIGN.md § Units), so it is asserted as a fixed
+ *                    fact rather than generated.
  *   Money.mul/div    do not exist. See money.ts — their absence is the design,
  *                    so there is nothing to generate for.
  */
 
 const SCALES = [0, 2, 3, 8, 18] as const
-const LOCALES = ['en-US', 'id-ID', 'de-DE', 'sv-SE'] as const
+const LOCALES = ['en-US', 'id-ID', 'de-DE', 'fr-FR', 'sv-SE'] as const
+const NBSP = '\u00A0'
 
-function registryWith(scale: number, code = 'IDR'): Registry {
-  return Registry.of([{ code, kind: 'currency', scale }])
+const CURRENCIES: readonly Commodity[] = [
+  { code: 'IDR', kind: 'currency', scale: 2 },
+  { code: 'USD', kind: 'currency', scale: 2 },
+  { code: 'EUR', kind: 'currency', scale: 2 },
+]
+const NON_CURRENCIES: readonly Commodity[] = [
+  { code: 'BBCA.JK', kind: 'equity', scale: 0 },
+  { code: 'XAU_GRAM', kind: 'metal', scale: 4 },
+  { code: 'BTC', kind: 'crypto', scale: 8 },
+  { code: 'ETH', kind: 'crypto', scale: 18 },
+]
+
+function registryWith(scale: number, code = 'IDR', kind: Commodity['kind'] = 'currency'): Registry {
+  return Registry.of([{ code, kind, scale }])
 }
 
 /** Magnitudes that reach well past 2^53, where a double stops counting. */
@@ -57,6 +88,11 @@ const signedAmounts = fc
 
 const scales = fc.constantFrom(...SCALES)
 const locales = fc.constantFrom(...LOCALES)
+
+/** A commodity of either kind, with its scale re-drawn so every scale meets every kind. */
+const commodities = fc
+  .tuple(fc.constantFrom(...CURRENCIES, ...NON_CURRENCIES), scales)
+  .map(([c, scale]): Commodity => ({ ...c, scale }))
 
 describe('Money arithmetic', () => {
   it('adds and subtracts without ever losing a unit, past 2^53', () => {
@@ -199,15 +235,56 @@ describe('formatting', () => {
     expect(text.replace(/[^0-9]/g, '')).toHaveLength(30)
   })
 
-  it('puts the symbol before the amount with a non-breaking space', () => {
-    const text = formatMoney(Money.of(150_000_000n, 'IDR'), registryWith(2), { locale: 'id-ID' })
-    expect(text).toBe('Rp 1.500.000,00')
+  it('places a currency symbol where the reader s locale puts it', () => {
+    // Four locales, chosen for being different rather than convenient: two
+    // lead, two trail, and the spacing differs within each pair. The rule that
+    // preceded this one said "before, with a space" and was measured against
+    // only the first two. (DESIGN.md § Units)
+    const registry = Registry.of(CURRENCIES)
+    const cases: ReadonlyArray<readonly [string, string, string]> = [
+      ['USD', 'en-US', '$1,500,000.00'],
+      ['IDR', 'en-US', `IDR${NBSP}1,500,000.00`],
+      ['IDR', 'id-ID', `Rp${NBSP}1.500.000,00`],
+      ['EUR', 'de-DE', `1.500.000,00${NBSP}€`],
+      ['IDR', 'de-DE', `1.500.000,00${NBSP}IDR`],
+      ['EUR', 'fr-FR', `1\u202F500\u202F000,00${NBSP}€`],
+    ]
+    for (const [code, locale, expected] of cases) {
+      expect(formatMoney(Money.of(150_000_000n, code), registry, { locale }), `${code} ${locale}`).toBe(
+        expected,
+      )
+    }
   })
 
-  it('uses the code as the unit for a commodity Intl does not know', () => {
-    const registry = Registry.of([{ code: 'XAU_GRAM', kind: 'metal', scale: 4 }])
-    const text = formatMoney(Money.of(12_5000n, 'XAU_GRAM'), registry, { locale: 'en-US' })
-    expect(text).toBe('XAU_GRAM 12.5000')
+  it('places a commodity code after the amount as a unit of measure, in every locale', () => {
+    const registry = Registry.of(NON_CURRENCIES)
+    expect(formatMoney(Money.of(125_000n, 'XAU_GRAM'), registry, { locale: 'en-US' })).toBe(
+      `12.5000${NBSP}XAU_GRAM`,
+    )
+    expect(formatMoney(Money.of(125_000n, 'XAU_GRAM'), registry, { locale: 'de-DE' })).toBe(
+      `12,5000${NBSP}XAU_GRAM`,
+    )
+    expect(formatMoney(Money.of(1_250n, 'BBCA.JK'), registry, { locale: 'id-ID' })).toBe(
+      `1.250${NBSP}BBCA.JK`,
+    )
+    expect(formatMoney(Money.of(15_000_000n, 'BTC'), registry, { locale: 'fr-FR' })).toBe(
+      `0,15000000${NBSP}BTC`,
+    )
+  })
+
+  it('keeps the minus beside the digits, not the symbol', () => {
+    // The one deliberate departure from the locale. en-US itself writes
+    // -$1,250.50; Nusa keeps the sign on the digits so a column aligns. This
+    // is the test named in format.ts as the one that goes red if that ever
+    // changes to follow the locale.
+    const registry = Registry.of(CURRENCIES)
+    expect(formatMoney(Money.of(-125_050n, 'USD'), registry, { locale: 'en-US' })).toBe('$-1,250.50')
+    expect(formatMoney(Money.of(-125_050n, 'IDR'), registry, { locale: 'id-ID' })).toBe(
+      `Rp${NBSP}-1.250,50`,
+    )
+    expect(formatMoney(Money.of(-125_050n, 'EUR'), registry, { locale: 'de-DE' })).toBe(
+      `-1.250,50${NBSP}€`,
+    )
   })
 
   it('refuses to render a commodity whose scale it does not know', () => {
@@ -236,6 +313,21 @@ describe('parsing what a person types', () => {
     for (const [text, locale, expected] of cases) {
       expect(parseMoney(text, 'IDR', idr, locale).amount, text).toBe(expected)
     }
+  })
+
+  it('reads back a trailing unit without mistaking it for a multiplier', () => {
+    // A pasted "1.250,50 EUR" ends in letters; so does "1,5 juta". The parser
+    // strips the unit it was told to expect, by name, before it looks for a
+    // multiplier — and a unit it was NOT told to expect is refused.
+    const eur = registryWith(2, 'EUR')
+    expect(parseMoney('1.250,50 EUR', 'EUR', eur, 'de-DE').amount).toBe(125_050n)
+    expect(parseMoney('1.250,50 €', 'EUR', eur, 'de-DE').amount).toBe(125_050n)
+    expect(parseMoney('1,5 juta', 'EUR', eur, 'id-ID').amount).toBe(150_000_000n)
+
+    const btc = registryWith(8, 'BTC', 'crypto')
+    expect(parseMoney('0,15 BTC', 'BTC', btc, 'id-ID').amount).toBe(15_000_000n)
+    expect(parseMoney('0.15btc', 'BTC', btc, 'en-US').amount).toBe(15_000_000n)
+    expect(() => parseMoney('0.15 ETH', 'BTC', btc, 'en-US')).toThrow(MoneyParseError)
   })
 
   it('lets the locale settle the one genuinely ambiguous shape', () => {
@@ -286,32 +378,22 @@ describe('format and parse are inverses', () => {
    * their own screen showed them and gets a different number back — which is
    * the failure that destroys trust permanently, and the one nothing but a
    * round trip catches.
+   *
+   * Every axis in the inventory is drawn here: amount, scale, kind, code,
+   * locale, and whether the unit is shown. A trailing symbol (de-DE, fr-FR), a
+   * trailing code (every non-currency), a leading symbol with and without a
+   * space, and no unit at all must all read back to the bigint that produced
+   * them.
    */
-  it('round-trips every amount, scale and locale', () => {
+  it('round-trips every amount, kind, scale, locale and unit setting', () => {
     fc.assert(
-      fc.property(signedAmounts, scales, locales, (a, scale, locale) => {
-        const registry = registryWith(scale)
-        const money = Money.of(a, 'IDR')
-
-        const digits = formatDigits(money, scale, locale)
-        expect(parseMoney(digits, 'IDR', registry, locale).equals(money)).toBe(true)
-
-        const withSymbol = formatMoney(money, registry, { locale })
-        expect(parseMoney(withSymbol, 'IDR', registry, locale).equals(money)).toBe(true)
+      fc.property(signedAmounts, commodities, locales, fc.boolean(), (a, commodity, locale, withSymbol) => {
+        const registry = Registry.of([commodity])
+        const money = Money.of(a, commodity.code)
+        const text = formatMoney(money, registry, { locale, withSymbol })
+        expect(parseMoney(text, commodity.code, registry, locale).equals(money), text).toBe(true)
       }),
-      { numRuns: 1000 },
-    )
-  })
-
-  it('round-trips a commodity with no Intl symbol too', () => {
-    fc.assert(
-      fc.property(signedAmounts, locales, (a, locale) => {
-        const registry = Registry.of([{ code: 'XAU_GRAM', kind: 'metal', scale: 4 }])
-        const money = Money.of(a, 'XAU_GRAM')
-        const text = formatDigits(money, 4, locale)
-        expect(parseMoney(text, 'XAU_GRAM', registry, locale).equals(money)).toBe(true)
-      }),
-      { numRuns: 300 },
+      { numRuns: 1500 },
     )
   })
 })

@@ -3,25 +3,34 @@
  *
  * The value never passes through a `number`. `Intl.NumberFormat` is consulted
  * for *locale conventions* — which separator, which minus sign, how digits are
- * grouped — and is handed a `bigint` when it is handed anything at all. Calling
- * `format(1500000.5)` would put the amount through a double on its way to the
- * screen, which is the §4.1 ban arriving at the last possible moment.
+ * grouped, where the currency symbol sits — and is handed a `bigint` when it is
+ * handed anything at all. Calling `format(1500000.5)` would put the amount
+ * through a double on its way to the screen, which is the §4.1 ban arriving at
+ * the last possible moment.
  *
  * Grouping is the reason Intl is used at all rather than a loop inserting a
  * separator every three digits: en-IN groups 3-2-2, and a hand-rolled grouper
  * silently renders the wrong thing for a reader whose locale it never
  * considered.
  *
- * DESIGN.md § Numeric typography governs the rest: the symbol sits before the
- * amount with a non-breaking space, the decimal count is the commodity's scale
- * on every row, a negative always carries an explicit sign, and nothing is
- * ever truncated — a truncated balance is a wrong balance.
+ * DESIGN.md § Numeric typography and § Units govern the rest. The unit rule is
+ * keyed on the commodity's KIND, never on whether a symbol happens to exist:
+ *
+ *   - A currency's symbol is part of the reader's typography, so its position
+ *     and spacing come from the locale. `$1,250.50`, `Rp 1.250,50`,
+ *     `1.250,50 €` — all three are the same rule applied.
+ *   - A commodity code is a unit of measure and follows the number, with a
+ *     non-breaking space, in every locale. `0,15 BTC`, `12,5000 XAU_GRAM`.
+ *
+ * An earlier version switched on whether the code was three letters long. That
+ * is a test of the symptom (Intl knows it) rather than the cause (it is a
+ * currency), and it is exactly the shape DESIGN.md now forbids.
  */
 
-import type { Registry } from './commodity'
+import type { Commodity, Registry } from './commodity'
 import type { Money } from './money'
 
-/** U+00A0. Keeps the symbol and the amount on one line, per DESIGN.md. */
+/** U+00A0. Keeps a unit and its amount on one line, per DESIGN.md. */
 const NBSP = ' '
 
 /**
@@ -64,49 +73,89 @@ function conventionsFor(locale: string): Conventions {
   return conventions
 }
 
-const symbolCache = new Map<string, string>()
-
 /**
- * The symbol a reader expects for this commodity, or the code itself.
+ * Where a currency's symbol sits in this locale, and what surrounds it.
  *
- * Intl only knows ISO 4217 currencies, so BTC, XAU_GRAM and an exchange ticker
- * all fall through to their code. §7 requires every number to carry a unit, and
- * DESIGN.md places that unit before the amount — so the code takes the
- * symbol's position rather than becoming a suffix nothing specifies.
+ * Learned from Intl's own parts for a bigint zero: everything before the first
+ * numeric part is the prefix, everything after the last is the suffix, and the
+ * digits in between are discarded so that ours can take their place. Only the
+ * layout is read, never a value.
  */
-export function symbolFor(commodity: string, locale: string): string {
-  const key = locale + SEP + commodity
-  const cached = symbolCache.get(key)
+interface CurrencyLayout {
+  readonly prefix: string
+  readonly suffix: string
+}
+
+const layoutCache = new Map<string, CurrencyLayout>()
+
+function currencyLayoutFor(code: string, locale: string): CurrencyLayout | null {
+  const key = locale + SEP + code
+  const cached = layoutCache.get(key)
   if (cached !== undefined) return cached
 
-  let symbol = commodity
-  if (/^[A-Za-z]{3}$/.test(commodity)) {
-    try {
-      const parts = new Intl.NumberFormat(locale, {
-        style: 'currency',
-        currency: commodity,
-        currencyDisplay: 'symbol',
-      }).formatToParts(0n)
-      symbol = parts.find((p) => p.type === 'currency')?.value ?? commodity
-    } catch {
-      // Not a currency Intl recognises. The code is the unit.
-      symbol = commodity
+  let parts: Intl.NumberFormatPart[]
+  try {
+    parts = new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: code,
+      currencyDisplay: 'symbol',
+    }).formatToParts(0n)
+  } catch {
+    // Intl refuses the code outright — not "no symbol for it", which Intl
+    // handles by showing the code, but a code it will not accept at all. There
+    // is then no locale convention to follow, and the caller falls back to the
+    // unit-of-measure rule rather than inventing a currency layout.
+    return null
+  }
+
+  const numeric = new Set(['integer', 'group', 'decimal', 'fraction', 'minusSign', 'plusSign'])
+  const first = parts.findIndex((p) => numeric.has(p.type))
+  let last = -1
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    if (numeric.has(parts[i]?.type ?? '')) {
+      last = i
+      break
     }
   }
-  symbolCache.set(key, symbol)
-  return symbol
+  if (first === -1 || last === -1) return null
+
+  const layout: CurrencyLayout = {
+    prefix: parts
+      .slice(0, first)
+      .map((p) => p.value)
+      .join(''),
+    suffix: parts
+      .slice(last + 1)
+      .map((p) => p.value)
+      .join(''),
+  }
+  layoutCache.set(key, layout)
+  return layout
+}
+
+/**
+ * The unit text the reader will see for this commodity in this locale — the
+ * locale's currency symbol, or the commodity code. Exposed so that parsing can
+ * strip exactly what formatting produced.
+ */
+export function unitFor(commodity: Commodity, locale: string): string {
+  if (commodity.kind === 'currency') {
+    const layout = currencyLayoutFor(commodity.code, locale)
+    if (layout !== null) return (layout.prefix + layout.suffix).trim()
+  }
+  return commodity.code
 }
 
 export interface FormatOptions {
-  /** Governs separators, grouping and the minus sign. Independent of language (§9). */
+  /** Governs separators, grouping, the minus sign and where a symbol sits. Independent of language (§9). */
   readonly locale: string
-  /** Omit the symbol where a column header already carries it. */
+  /** Omit the unit where a column header already carries it. */
   readonly withSymbol?: boolean
 }
 
 /**
  * The digits alone: grouped integer part, decimal separator, exactly `scale`
- * fraction digits, and a minus sign when negative. No symbol.
+ * fraction digits, and a minus sign when negative. No unit.
  */
 export function formatDigits(money: Money, scale: number, locale: string): string {
   const { decimal, minus } = conventionsFor(locale)
@@ -133,12 +182,32 @@ export function formatDigits(money: Money, scale: number, locale: string): strin
 /**
  * An amount as a reader sees it.
  *
- * The scale comes from the registry, which came from the server. An unknown
- * commodity throws rather than being rendered with a guessed decimal point.
+ * The scale and the kind come from the registry, which came from the server.
+ * An unknown commodity throws rather than being rendered with a guessed
+ * decimal point.
+ *
+ * THE MINUS SIGN STAYS WITH THE DIGITS, and this is a deliberate departure from
+ * the locale, stated here because it is the one place this file ignores a
+ * convention it follows everywhere else. en-US writes `-$1,250.50`; Nusa
+ * writes `$-1,250.50`. The reason is alignment: in a column, a sign that
+ * sometimes precedes a symbol and sometimes the digits does not line up, and
+ * alignment is most of what a numeric column is for. DESIGN.md § Units records
+ * the decision; `money.test.ts` "keeps the minus beside the digits, not the
+ * symbol" is the test that would go red if this were ever changed to follow
+ * the locale.
  */
 export function formatMoney(money: Money, registry: Registry, options: FormatOptions): string {
-  const scale = registry.scaleOf(money.commodity)
-  const digits = formatDigits(money, scale, options.locale)
+  const commodity = registry.get(money.commodity)
+  const digits = formatDigits(money, commodity.scale, options.locale)
   if (options.withSymbol === false) return digits
-  return symbolFor(money.commodity, options.locale) + NBSP + digits
+
+  if (commodity.kind === 'currency') {
+    const layout = currencyLayoutFor(commodity.code, options.locale)
+    if (layout !== null) return layout.prefix + digits + layout.suffix
+  }
+
+  // A unit of measure follows the number. This is also where a currency whose
+  // code Intl refuses lands, because with no locale convention available the
+  // only honest presentation is the code as a unit.
+  return digits + NBSP + commodity.code
 }

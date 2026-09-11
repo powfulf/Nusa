@@ -2934,6 +2934,72 @@ in exactly that state. It becomes a failure at the end of M3.
 > **Debt, with its trigger.** Promote the unreferenced-token report to a build
 > failure at the end of M3, when every token has a consumer.
 
+#### A rule written against two cases, generalised, and wrong in the third
+
+The instruction was to fix one thing: a commodity code was being placed before
+the amount like a currency symbol, and `XAU_GRAM 12,5000` is wrong for every
+convention anyone uses for gold, crypto or shares. Measuring what `Intl`
+actually produces for three currencies across five locales, before proposing
+the fix, found that the rule being corrected was wrong in three ways rather
+than one:
+
+| `DESIGN.md` said | What is true |
+| --- | --- |
+| `$ 1,250.00` — a space after the symbol | en-US puts none: `$1,250.50` |
+| symbols sit **before** the amount | de-DE and fr-FR put them after: `1.250,50 €` |
+| one rule for every unit | a currency symbol and a commodity code are different kinds of thing |
+
+The line had been written against Rupiah and Dollars — the two currencies
+anyone here checks by eye — and generalised. It looked right in both, and
+nothing about it announced that the third locale would disagree.
+
+**This is the second time a rule has taken this shape.** `--text-secondary`
+was examined on one surface, found to fail there, and the first proposal was to
+forbid it on that one surface; measuring all nine found it failing on five. In
+both cases the fix was found by measurement rather than by reasoning about the
+rule, and in both the measurement was cheap and nobody had done it.
+
+> **Rule.** Before writing a rule that says "locale", "every language", "all
+> cases" or "always", measure at least four — and choose the ones whose
+> conventions differ most, not the ones easiest to check. de-DE and fr-FR found
+> this; en-US and id-ID never would have, because they agree with each other
+> on exactly the thing the rule got wrong. A rule generalised from two similar
+> cases is a rule about those two cases wearing a universal quantifier.
+
+The rule that replaced it keys on the commodity's *kind*, never on whether a
+symbol happens to be available — because "if there is no symbol" is a rule
+about a symptom, and the absence of a symbol is what a code looks like from
+the outside, not why it is one. `symbolFor` had been branching on
+`/^[A-Za-z]{3}$/`, which is the symptom test written down; it now branches on
+`kind === 'currency'`.
+
+**The minus sign stays with the digits, deliberately, and is guarded.** Every
+other convention in the formatter follows the locale; this one does not, and a
+reader who sees `$-1,250.50` where en-US writes `-$1,250.50` will assume an
+oversight unless told otherwise. So the reason is in the code beside the
+decision, not only in `DESIGN.md`: a column in which the sign sometimes
+precedes a symbol and sometimes the digits does not align. It is *not* in the
+undefended category — `money.test.ts` "keeps the minus beside the digits, not
+the symbol" goes red if it is ever changed to follow the locale — and the test
+is named in the comment so that the next reader can find it.
+
+**The generator was missing the axis this whole finding is about.** The
+round-trip property test ran across en-US and id-ID, both of which place the
+symbol first — so a formatter that put every symbol first, however wrong, would
+have round-tripped perfectly. It now varies commodity kind, currency code,
+symbol-leading and symbol-trailing locales, and whether the unit is shown at
+all; the inventory in the file names each and says which was missing. An audit
+of the remaining axes found `withSymbol` had been fixed at `true` in every
+generated case and covered by a single hand-written one.
+
+**And the class-name guard produced a third false positive**, on the test that
+asserts the minus placement: `` `Rp${NBSP}-1.250,50` `` matched the
+`${tone}-500` pattern, because a digit is a Tailwind value. The pattern now
+requires a class boundary after the value, since no class name contains a
+decimal point. Three false positives from one guard, each found by real code
+after the second list was thought complete, is the strongest evidence yet for
+the §11 rule that the corpus is the codebase and not the breaks.
+
 #### Order of work, and why
 
 1. **Guards first, each watched failing** — logical properties, tabular

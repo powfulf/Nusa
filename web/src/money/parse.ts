@@ -25,6 +25,7 @@
  */
 
 import { Money } from './money'
+import { unitFor } from './format'
 import type { Registry } from './commodity'
 
 /** The text could not be read as an amount at all. */
@@ -217,6 +218,25 @@ export function parseMoney(
   }
 
   text = text.replace(stripSymbol, '')
+
+  /*
+   * A trailing unit is stripped BY NAME, before the multiplier check. Formatting
+   * puts a commodity code after the digits (`12,5000 XAU_GRAM`) and several
+   * locales put the currency symbol there too (`1.250,50 EUR` in de-DE), so a
+   * pasted value arrives with letters on its tail — and so does "1,5 juta". The
+   * only way to tell a unit from a multiplier is to know which unit this field
+   * is for, so exactly that unit, and its code, are removed; anything else on
+   * the tail is left for the multiplier table and then the refusal below.
+   */
+  const known = registry.get(commodity)
+  for (const tail of [unitFor(known, locale), known.code]) {
+    const t = tail.toLowerCase()
+    const lower = text.toLowerCase()
+    if (t.length > 0 && lower.length > t.length && lower.endsWith(t)) {
+      text = text.slice(0, text.length - t.length)
+      break
+    }
+  }
 
   let places = 0
   const lowered = text.toLowerCase()

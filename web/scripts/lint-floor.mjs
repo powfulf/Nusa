@@ -169,7 +169,12 @@ const UTILITY_VALUE =
   'base|sunken|default|hover|xs|sm|md|lg|xl|full|touch|row|topbar|narrow|prose|shell)'
 
 const dynamicPrefix = new RegExp(UTILITY_PREFIX + String.raw`-\$\{`) //  `bg-${tone}`
-const dynamicSuffix = new RegExp(String.raw`\}-` + UTILITY_VALUE + String.raw`\b`) // `${tone}-500`
+// A utility value ends at a class boundary — whitespace, a quote, or the end of
+// the literal. `${NBSP}-1.250,50` is an amount: the digit after the hyphen is
+// followed by a decimal point, which no class name contains. This was the third
+// false positive from this pattern, found by real code after the second list
+// was already thought complete.
+const dynamicSuffix = new RegExp(String.raw`\}-` + UTILITY_VALUE + String.raw`(?=[\s'"` + '`' + String.raw`]|$)`) // `${tone}-500`
 const dynamicConcat = new RegExp(
   String.raw`['"]` + UTILITY_PREFIX + String.raw`-['"]\s*\+`, // 'bg-' + tone
 )

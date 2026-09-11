@@ -53,7 +53,7 @@ describe('<Money>', () => {
 
   it('shows a scale-0 commodity with no decimal separator at all', () => {
     const { container } = withMoney(<MoneyComponent value={Money.of(1_250n, 'BBCA.JK')} />)
-    expect(container.querySelector('span')?.textContent).toBe(`BBCA.JK${NBSP}1.250`)
+    expect(container.querySelector('span')?.textContent).toBe(`1.250${NBSP}BBCA.JK`)
   })
 
   it('drops the symbol when a column header already carries it', () => {

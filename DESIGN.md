@@ -227,10 +227,56 @@ Numbers are the product. They get their own rules, and these are not optional.
 - **Numbers are never truncated and never ellipsised.** If a value does not
   fit, the column widens, the layout reflows, or the label wraps — the digits
   do not. A truncated balance is a wrong balance.
-- **Currency symbols** sit before the amount with a non-breaking space
-  (`Rp 15.000,00`, `$ 1,250.00`), and the symbol, grouping separator and
-  decimal separator all follow the reader's locale rather than the commodity's
-  country. Symbol and amount never break across lines.
+- **The grouping separator and the decimal separator** follow the reader's
+  locale rather than the commodity's country. **The unit** — a currency symbol
+  or a commodity code — is governed by § Units below, and the two are not the
+  same rule.
+
+### Units: a currency symbol and a commodity code are different things
+
+Both answer "what is this a quantity of", and they are governed differently
+because they are different kinds of thing. **The commodity's `kind` decides
+which rule applies — never whether a symbol happens to be available.**
+
+**A currency symbol is part of the reader's typography.** Where it sits, and
+whether a space separates it from the digits, is a fact about the reader's
+locale rather than about the currency: `$1,250.50` in en-US, `Rp 1.250,50` in
+id-ID, `1.250,50 €` in de-DE. The locale decides all of it, so Nusa takes the
+placement and the spacing from the locale's own conventions rather than
+imposing one. Where the locale uses a space it is a non-breaking one — which is
+what the platform already produces — so a symbol never separates from its
+amount across a line break.
+
+A currency the reader's locale has no symbol for shows its ISO code **in the
+symbol's position**, because that is what the locale does with a currency it
+does not abbreviate. `IDR 1,250.50` in en-US, `1.250,50 IDR` in de-DE.
+
+**A commodity code is a unit of measure, and follows the number.** Equities,
+funds, metals and crypto are counted, not priced in — `12,5000 XAU_GRAM`,
+`0,15 BTC`, `1.250 BBCA.JK` — and every convention a reader already knows for
+those puts the unit after the quantity, in every locale. The separator is a
+non-breaking space, always, because no locale has an opinion here to follow.
+
+| Kind | Unit | Position | Separator |
+| --- | --- | --- | --- |
+| `currency` | the locale's symbol, or the ISO code | wherever the locale puts it | whatever the locale uses, non-breaking |
+| everything else | the commodity code | after the amount | non-breaking space, always |
+
+**The minus sign stays with the digits**, on both sides of this rule, even
+where a locale would place it outside the symbol. A column in which the sign
+sometimes precedes a symbol and sometimes the digits does not align, and
+alignment is most of what a numeric column is for.
+
+Where a column heading already names the unit, the unit is omitted from every
+cell and the digits stand alone. Repeating it on a thousand rows is noise the
+heading has already removed.
+
+This section replaced a single line that said symbols sit before the amount
+with a space, with `$ 1,250.00` as its example. That line was written against
+Rupiah and Dollars and generalised: en-US puts no space after `$`, and de-DE
+and fr-FR put the symbol after the amount. It was wrong in three ways and
+looked right in the two locales anyone here checked, which is the same shape as
+`--text-secondary` failing on five surfaces after being examined on one.
 
 ---
 
