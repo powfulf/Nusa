@@ -3086,6 +3086,117 @@ The first is a specificity interaction between two correct utilities. The
 second is a spec that is correct as drawn and wrong as built. **Both classes
 recur**, and there is no layer below a real layout engine that can see either.
 
+#### The fifth control byte, and the first one that broke something
+
+The four earlier instances — a UTF-16 `.gitignore`, CRLF working files, six
+0x1F bytes in `cursor_test.go`, four more in the money and ICU cache keys —
+were all *legible* failures once found and none was a functional one. A raw
+0x1F and the escape for it are the same value to Go and to JavaScript; the
+harm was that nobody could see them. That reading makes `lint:bytes` a
+tidiness check, and a tidiness check is the first thing a hurried session
+skips.
+
+The fifth is different in kind, and it is recorded separately so that reading
+survives. The enumeration guard's static cross-check was written through the
+shell with a `\b` word boundary in its regular expression. The shell delivered
+a single 0x08 byte — a backspace — and the regular expression then matched
+**nothing at all**. The guard did not misjudge anything. It read zero files,
+found zero exports, and would have reported the gallery complete however many
+primitives were missing.
+
+**That is a correctness failure, not a cleanliness one.** The same class of
+byte that had cost an hour four times had now silently emptied a guard.
+
+What caught it is the part worth keeping. The cross-check carries its own
+"read nothing" assertion — a count of what the static scan found, required to
+be non-zero — per the §11 comparator rule. That rule was written after five
+comparators had compared nothing; the sixth instance was caught by the
+assertion the rule demanded, inside the tool built to enforce it. The byte scan
+would also have found the 0x08 eventually, and did, but the comparator
+assertion is what turned a silent pass into a loud one at the moment it
+mattered.
+
+> **Rule.** `lint:bytes` is a correctness guard. A control byte in a source
+> file is not a hygiene problem waiting for someone to notice — it can and did
+> turn a regular expression into one that matches nothing, which turns the
+> guard around it into one that passes by reading nothing. Anyone tempted to
+> treat the byte scan as optional should read this entry first.
+
+#### 767px vanished rather than becoming an exception
+
+The instruction was to name `767px` in `DESIGN.md` as a second raw-value
+exception beside the manifest colours, with its reason. Checking first whether
+the number could be *derived* found that it could: Tailwind resolves
+`theme('screens.md')` inside a stylesheet's `@media`, and the "below `md`" band
+is expressible as `not all and (min-width: theme('screens.md'))` with no
+`max-width` one pixel short. Both stylesheets now read the breakpoint back from
+the `screens` block, and `lint:tokens` refuses a number inside any `@media`.
+
+So there is one exception fewer than was asked for, and the rule that produced
+it is a preference worth recording as one:
+
+> **Rule.** A named exception is the last resort, not the first. Before writing
+> one, check whether the value can be derived from a source that already
+> exists — a build-time reference, a computed property, a constant already
+> defined elsewhere. An exception that can be eliminated is one that would
+> otherwise have to be kept in step by hand, and the day it drifts is the day
+> nobody remembers it was there.
+
+#### Two `DESIGN.md` defects a real browser showed, and what was decided
+
+Both were found by reading `getComputedStyle` in the gallery, both were flagged
+rather than silently corrected, and both were decided by the design authority
+rather than by the component.
+
+**Button label leading.** `DESIGN.md` gave button heights of 32/42/48 and Body
+leading of 1.6, and the two cannot both hold: with Body leading the `lg` button
+measured 50px and `sm` 33px. Decided: **the heights are the specification and
+the label's leading is derived from them** — 1.25, now a token
+(`--leading-control`) rather than Tailwind's default `leading-tight`, so the
+chain still runs `DESIGN.md → tokens.css → tailwind.config.js → component`.
+Body's 1.6 exists for lines that follow one another; a label has no next line.
+
+The question that had to be answered before writing the rule was what happens
+when an Indonesian label 20% longer than its English one wraps. § Buttons now
+says: the height is a minimum, the button grows, and a wrapped label is a
+*catalogue* problem to fix by shortening the string, never a layout problem to
+fix by ellipsis. The growth was measured rather than reasoned — 47, 55 and
+64px at two lines — and the first draft had reasoned it wrong, adding a full
+line of leading when the single-line height already carried slack the second
+line spends first. A Vitest guard refuses a fixed height, `truncate` or
+`whitespace-nowrap` on the button; the layout half is a Playwright measurement.
+
+**The 1.5px checkbox border.** Rendered as 1px on the 1× displays that
+§ Responsiveness names as the primary phone, and honoured only on 2× ones. A
+specification that renders differently from what it says is a specification
+that lies — and the rounding went the wrong way, thinning the one border that
+is the unchecked box's indicator exactly where most readers would see it.
+Decided: **2px, and CSS borders are whole pixels here.** The 1.5px *stroke* on
+small icons stays, because an SVG stroke is anti-aliased vector geometry
+rendered at its true width on every density, and the two mechanisms were
+decided together so that no reader finds two conventions: a CSS border width
+is a whole number of pixels; an SVG stroke may be fractional. The selected
+radio's border was already 2px, so `--radio-selected-border-width` collapsed
+into `--check-border-width` — one token, because they are now one value.
+
+#### Environment: one push can produce two CI runs, and one will be cancelled
+
+Pushing `ba86ae3` produced two workflow runs with the same head SHA, the same
+`push` event and the same creation second. `ci.yml` declares a concurrency
+group per branch with `cancel-in-progress: true`, so the first run was
+cancelled the moment the second was queued, and the second ran to completion.
+
+This is worth writing down because a cancelled run reads as a failure to
+anyone scanning the Actions list, and the honest report is not "CI failed" but
+"CI produced a duplicate and cancelled it". How to read it: two runs for one
+SHA, one `cancelled` and one `success` or `failure`, is one result — the one
+that was not cancelled. A cancelled run with **no** sibling for the same SHA
+is a different situation and needs looking at.
+
+The cause was not chased. Both runs were created by GitHub in the same second
+from the same event, and nothing in this repository can produce that; it is
+recorded as an observed fact about the platform, not as something to fix.
+
 #### Order of work, and why
 
 1. **Guards first, each watched failing** — logical properties, tabular
