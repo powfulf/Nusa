@@ -120,6 +120,13 @@ export default {
         code: ['var(--text-code)', { lineHeight: 'var(--leading-body)' }],
       },
 
+      // A single-line control label overrides its step's leading with this one
+      // (DESIGN.md § Buttons): the button heights are the specification and the
+      // label's leading is derived from them.
+      lineHeight: {
+        control: 'var(--leading-control)',
+      },
+
       spacing: {
         xs: 'var(--space-xs)',
         sm: 'var(--space-sm)',
@@ -157,7 +164,6 @@ export default {
 
       borderWidth: {
         check: 'var(--check-border-width)',
-        'radio-selected': 'var(--radio-selected-border-width)',
       },
 
       letterSpacing: {

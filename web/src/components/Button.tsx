@@ -64,12 +64,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       className={[
-        // leading-tight rather than the body leading: DESIGN.md § Buttons gives
-        // heights of 32/42/48 that only close if the label's line box is under
-        // 1.5 lines. With Body's 1.6 the lg button measured 50px. Recorded as
-        // a DESIGN.md inconsistency to resolve; this is the smallest derivation
-        // that makes the table true.
-        'inline-flex items-center justify-center gap-sm rounded font-medium leading-tight',
+        // leading-control, not the step's own: DESIGN.md § Buttons makes the
+        // heights the specification and derives the label's leading from them.
+        // The height is a minimum — a wrapped label grows the button rather
+        // than being ellipsised — which is why every size uses min-h.
+        'inline-flex items-center justify-center gap-sm rounded font-medium leading-control',
         'transition-colors duration-instant ease-standard',
         'disabled:cursor-not-allowed disabled:opacity-40',
         variantClass[variant],

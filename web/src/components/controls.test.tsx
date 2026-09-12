@@ -34,6 +34,23 @@ describe('<Button>', () => {
     }
   })
 
+  it('has a minimum height, never a fixed one, and never ellipsises its label', () => {
+    // DESIGN.md § Buttons: a wrapped label grows the button. jsdom does not
+    // lay out, so the layout half (47/55/64px at two lines) is a Playwright
+    // measurement; this half catches the class that would break it — a fixed
+    // h-*, truncate, or nowrap — before any browser sees it.
+    for (const size of ['sm', 'md', 'lg'] as const) {
+      const r = render(<Button size={size}>x</Button>)
+      const cls = r.getByRole('button').className.split(' ')
+      expect(cls.some((c) => /^(md:)?min-h-/.test(c)), size).toBe(true)
+      expect(cls.some((c) => /^(md:)?h-/.test(c)), size).toBe(false)
+      expect(cls).not.toContain('truncate')
+      expect(cls).not.toContain('whitespace-nowrap')
+      expect(cls).toContain('leading-control')
+      r.unmount()
+    }
+  })
+
   it('hides a decorative icon from assistive technology', () => {
     const { container } = render(<Button icon={<svg data-testid="i" />}>Go</Button>)
     expect(container.querySelector('[aria-hidden="true"] [data-testid="i"]')).toBeTruthy()

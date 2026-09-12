@@ -234,6 +234,11 @@ Body sizes never shrink on small screens. Only headings scale down, because a
 40px display heading on a 360px screen consumes a third of the viewport while a
 16px body line is already at the floor of comfortable reading.
 
+**Control labels do not take the Body line height.** A button label set in
+Body SM is 14px type, but its leading is **1.25**, not 1.5 — see § Buttons for
+the rule and the reason. The line heights in the table above are for lines
+that follow one another; a label has no next line.
+
 ### Numeric typography
 
 Numbers are the product. They get their own rules, and these are not optional.
@@ -723,6 +728,27 @@ that carries a label.
 Below `md` every button meets the 44px touch minimum; `sm` and `md` buttons
 gain hit-area padding rather than growing visually.
 
+**Label leading is 1.25, not the Body leading.** The heights in the table are
+the specification; the label's leading is derived from them, not the other way
+round. Body's 1.6 exists for prose — lines that follow one another and need
+air between them — and a button label has no next line. With Body leading a
+`lg` button measures 50px and an `sm` button 33px; with 1.25 the table is true.
+The same leading applies to any single-line control label: chips, tabs,
+navigation items.
+
+**The height is a minimum, never a fixed value.** § Internationalization makes
+an important label something that wraps rather than ellipsises, and Indonesian
+runs 15–20% longer than English. A label that wraps to two lines makes its
+button taller — measured at 47, 55 and 64px for `sm`, `md` and `lg`, because
+the single-line height was already a minimum with slack in it and the second
+line spends that slack first — and the button stays correct: the label remains whole and
+centred, the icon stays beside it, the hit area grows with it. What a wrapped
+label signals is a *catalogue* problem: the string is too long for the control
+and should be shortened in the catalogue, in every language, not truncated in
+the layout and not squeezed with a smaller leading. A button whose height is
+locked forces the ellipsis, and an ellipsised label is a label that failed at
+its only job.
+
 ---
 
 ### Cards
@@ -810,7 +836,7 @@ string.
 ### Checkboxes
 
 - **Size**: 18px × 18px · **Radius**: 4px
-- **Unchecked**: 1.5px `--border-strong` border, `--surface-default` fill
+- **Unchecked**: 2px `--border-strong` border, `--surface-default` fill
 - **Checked**: `#0F172A` fill, no border, `#FFFFFF` checkmark
 - **Indeterminate**: `#0F172A` fill, `#FFFFFF` dash
 - **Disabled**: 40% opacity, `cursor: not-allowed`
@@ -822,12 +848,31 @@ An unchecked checkbox has a fill identical to the card behind it, so the
 only one that survives when the box itself is faint. A checkbox with no visible
 label is not permitted; use an icon button instead.
 
+**The border is 2px, and CSS borders are always whole pixels here.** This was
+1.5px. A CSS border is painted in whole device pixels, and the engines snap a
+fractional width down rather than up — measured here as 1px on a 1× display,
+where the value is only honoured (as 3 device pixels) on a 2× one. § Responsiveness names entry-level
+Android as the primary phone, and many of those are 1× or close to it — so the
+specified value was true on the displays fewest readers have and false on the
+ones most have. A specification that renders differently from what it says is
+a specification that lies. And the rounding went the wrong way: the unchecked
+box is the control whose border *is* its indicator, so a border that thinned
+on the commonest display weakened the indicator exactly where it was most
+needed.
+
+This is a rule about CSS borders, not about strokes. An SVG stroke is vector
+geometry, anti-aliased at its true width on every density, so the 1.5px stroke
+on a 16px icon in § Icons renders as specified everywhere and stays. The two
+are different mechanisms with different rendering, and the convention is: **a
+CSS border width is a whole number of pixels; an SVG stroke may be
+fractional.**
+
 ---
 
 ### Radio Buttons
 
 - **Size**: 18px × 18px · **Radius**: full
-- **Unchecked**: 1.5px `--border-strong` border, `--surface-default` fill
+- **Unchecked**: 2px `--border-strong` border, `--surface-default` fill
 - **Selected**: 2px `#0F172A` border, 8px `#0F172A` inner dot
 - **Disabled**: 40% opacity, `cursor: not-allowed`
 - **Label spacing**: 8px on the inline-start side of the label

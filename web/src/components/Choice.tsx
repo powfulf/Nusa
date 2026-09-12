@@ -5,7 +5,7 @@ import { forwardRef, useEffect, useId, useRef, type InputHTMLAttributes } from '
  * DESIGN.md § Checkboxes and § Radio Buttons.
  *
  * The label is REQUIRED BY THE TYPE, not by convention. An unchecked box has a
- * fill identical to the card behind it, so its 1.5px border is doing all of
+ * fill identical to the card behind it, so its 2px border is doing all of
  * the identifying — and that is the exact case §8.2 Controls refuses. The
  * visible label is the control's second indicator, and a checkbox without one
  * is not permitted at all: DESIGN.md says to use an icon button instead. So
@@ -100,7 +100,7 @@ export const Radio = forwardRef<HTMLInputElement, RadioProps>(function Radio(
           id={id}
           type="radio"
           disabled={disabled}
-          className="peer size-check cursor-pointer disabled:cursor-not-allowed appearance-none rounded-full border-check border-border-strong bg-surface checked:border-radio-selected checked:border-control-primary"
+          className="peer size-check cursor-pointer disabled:cursor-not-allowed appearance-none rounded-full border-check border-border-strong bg-surface checked:border-control-primary"
           {...rest}
         />
         <span

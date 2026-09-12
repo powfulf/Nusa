@@ -109,11 +109,10 @@
   --button-lg-padding-inline: 28px;
 
   /* ---- Checkboxes and radios (DESIGN.md § Checkboxes, § Radio Buttons).
-         An 18px box with a 1.5px border; a selected radio grows its border to
-         2px and shows an 8px dot. ---- */
+         An 18px box with a 2px border in every state; a selected radio changes
+         the border's colour, not its width, and shows an 8px dot. ---- */
   --check-size: 18px;
-  --check-border-width: 1.5px;
-  --radio-selected-border-width: 2px;
+  --check-border-width: 2px;
   --radio-dot-size: 8px;
 
   /* ---- Tooltips (DESIGN.md § Tooltips) ---- */
@@ -146,6 +145,7 @@
   --leading-body: 1.6;
   --leading-body-sm: 1.5;
   --leading-caption: 1.4;
+  --leading-control: 1.25;
 
   /* ---- Spacing, 8px base (DESIGN.md § Spacing) ---- */
   --space-xs: 4px;
