@@ -28,6 +28,26 @@
     "unknown_commodity": "Kami belum tahu bagaimana {commodity} dihitung.",
     "unparseable": "Itu belum bisa dibaca sebagai jumlah. Coba 1500000 atau 1,5jt."
   },
+  "explain": {
+    "trigger": "Jelaskan: {title}",
+    "close": "Tutup penjelasan",
+    "netWorth": {
+      "title": "Kekayaan bersih",
+      "body": "Kekayaan bersih adalah semua yang Anda miliki dikurangi semua yang Anda utang. Saat ini: {assets} di rekening dan aset, dikurangi utang {liabilities}, jadi {netWorth}. Melunasi pinjaman tidak mengubahnya — utang dan uang Anda turun sejumlah yang sama."
+    },
+    "onPaperGain": {
+      "title": "Untung di atas kertas",
+      "body": "{direction, select, up {Untung ini} down {Rugi ini} other {Angka ini}} masih di atas kertas: belum ada yang dijual, jadi belum ada uang yang masuk. Anda membayar {costBasis} untuk {quantity}; hari ini nilainya {marketValue}, {direction, select, up {lebih {delta}} down {kurang {delta}} other {persis harga belinya}}. Kalau harga bergerak besok, angka ini ikut bergerak — hanya menjual yang membuatnya nyata."
+    },
+    "fxChange": {
+      "title": "Berubah karena kurs",
+      "body": "Perubahan ini berasal dari kurs, bukan dari pengeluaran atau pemasukan Anda. {balance} Anda bernilai {valueThen} saat dicatat, dan {valueNow} dengan kurs hari ini. {balance}-nya sendiri tidak berubah — hanya nilainya dalam {reportingCurrency} yang bergerak."
+    },
+    "transaction": {
+      "title": "Transaksi",
+      "body": "Transaksi adalah uang yang berpindah dari satu tempat ke tempat lain; tidak ada yang muncul atau hilang. Yang ini memindahkan {amount} dari {from} ke {to}. {toKind, select, expense {{to} yang naik bukan uang yang Anda punya — itu total yang sudah pergi ke sana.} income {{to} adalah asal uangnya; jumlah yang sama mendarat di {from}, dan itu milik Anda.} liability {Ini melunasi utang: yang Anda utang di {to} turun persis sejumlah itu.} asset {Uangnya masih milik Anda — yang berubah tempatnya, bukan jumlahnya.} other {Kedua sisi mencatat jumlah yang sama, jadi keduanya selalu cocok.}}"
+    }
+  },
   "gallery": {
     "title": "Galeri komponen",
     "effects": {
@@ -67,6 +87,7 @@
       "skeletonBlock": "Kerangka blok",
       "skeletonRegion": "Wilayah kerangka",
       "emptyState": "Keadaan kosong",
+      "explain": "Penjelasan istilah",
       "region": "Wilayah"
     },
     "fixture": {

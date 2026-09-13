@@ -5,6 +5,7 @@ import { Card } from '../components/Card'
 import { Checkbox, Radio } from '../components/Choice'
 import { FilterChip, StatusChip } from '../components/Chip'
 import { EmptyState } from '../components/EmptyState'
+import { Explain } from '../components/Explain'
 import { Input } from '../components/Input'
 import { Region } from '../components/Region'
 import { SkeletonAmount, SkeletonBlock, SkeletonRegion, SkeletonText } from '../components/Skeleton'
@@ -15,6 +16,7 @@ import { Money } from '../components/Money'
 import { MoneyInput } from '../components/MoneyInput'
 import { Table, TableRow, type TableColumn } from '../components/Table'
 import { Registry } from '../money/commodity'
+import { directionOf, formatMagnitude, formatMoney } from '../money/format'
 import { MoneyProvider } from '../money/context'
 import { Money as MoneyValue } from '../money/money'
 import type { GalleryRegistry } from './registry'
@@ -115,6 +117,9 @@ const region = (state: Parameters<typeof Region<string[]>>[0]['state']) => (
     )}
   />
 )
+
+/** A fixture amount in Rupiah, formatted for id-ID, as a screen would hand it to <Explain>. */
+const rupiah = (units: string) => formatMoney(MoneyValue.of(BigInt(units), 'IDR'), registry, { locale: 'id-ID' })
 
 const list = (rows: number, pending = false) => (
   <List label="Transaksi">
@@ -518,6 +523,77 @@ export const entries: GalleryRegistry = {
       loading: { notApplicable: 'a skeleton region IS the loading state' },
       error: { notApplicable: 'a skeleton does not fail' },
       empty: { notApplicable: 'a skeleton region with nothing inside is not rendered' },
+    },
+  },
+
+  Explain: {
+    titleKey: 'gallery.entry.explain',
+    states: {
+      default: {
+        // Four terms, one of each shape: plain figures, a directional select,
+        // a rate change, and the transaction card keyed on account kind. The
+        // numbers are fixtures formatted by the real formatter; no M3 screen
+        // has live figures to hand this component yet (§13).
+        render: () => (
+          <ul className="flex flex-col gap-sm text-body text-text-primary">
+            <li className="flex items-center gap-xs">
+              Kekayaan bersih
+              <Explain
+                term="netWorth"
+                values={{
+                  assets: rupiah('4825000000'),
+                  liabilities: rupiah('1250000000'),
+                  netWorth: rupiah('3575000000'),
+                }}
+              />
+            </li>
+            <li className="flex items-center gap-xs">
+              Untung di atas kertas
+              <Explain
+                term="onPaperGain"
+                values={{
+                  costBasis: rupiah('2375000000'),
+                  quantity: formatMoney(MoneyValue.of(250n, 'BBCA.JK'), registry, { locale: 'id-ID' }),
+                  marketValue: rupiah('2562500000'),
+                  delta: formatMagnitude(MoneyValue.of(187_500_000n, 'IDR'), registry, { locale: 'id-ID' }),
+                  direction: directionOf(MoneyValue.of(187_500_000n, 'IDR')),
+                }}
+              />
+            </li>
+            <li className="flex items-center gap-xs">
+              Berubah karena kurs
+              <Explain
+                term="fxChange"
+                values={{
+                  balance: formatMoney(MoneyValue.of(120_000n, 'USD'), registry, { locale: 'id-ID' }),
+                  valueThen: rupiah('1848000000'),
+                  valueNow: rupiah('1968000000'),
+                  reportingCurrency: 'IDR',
+                }}
+              />
+            </li>
+            <li className="flex items-center gap-xs">
+              Transaksi
+              <Explain
+                term="transaction"
+                values={{
+                  amount: formatMagnitude(MoneyValue.of(-4_500_000n, 'IDR'), registry, { locale: 'id-ID' }),
+                  from: 'Dompet',
+                  to: 'Makan',
+                  toKind: 'expense',
+                }}
+              />
+            </li>
+          </ul>
+        ),
+      },
+      hover: { interactive: true },
+      focus: { interactive: true },
+      active: { interactive: true },
+      disabled: { notApplicable: 'an explanation is never withheld; a term either has one or is not jargon' },
+      loading: { notApplicable: 'the numbers arrive with the screen that shows the term; the card never fetches' },
+      error: { notApplicable: 'a card that cannot be filled is not rendered — the type refuses a term without its numbers' },
+      empty: { notApplicable: 'a term without numbers has no shape; see the @ts-expect-error proof in explain.test.tsx' },
     },
   },
 

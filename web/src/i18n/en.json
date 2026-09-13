@@ -28,6 +28,26 @@
     "unknown_commodity": "We do not know how {commodity} is counted yet.",
     "unparseable": "That is not an amount we can read. Try 1500000 or 1.5m."
   },
+  "explain": {
+    "trigger": "Explain: {title}",
+    "close": "Close explanation",
+    "netWorth": {
+      "title": "What you’re worth",
+      "body": "What you’re worth is everything you own minus everything you owe. Right now that is {assets} in accounts and holdings, minus {liabilities} you still owe: {netWorth}. Paying off a loan does not change it — the debt and your cash both fall by the same amount."
+    },
+    "onPaperGain": {
+      "title": "On-paper gain",
+      "body": "{direction, select, up {This gain} down {This loss} other {This figure}} is on paper: nothing has been sold, so no money has arrived. You paid {costBasis} for {quantity}; today it is worth {marketValue}, {direction, select, up {which is {delta} more} down {which is {delta} less} other {exactly what you paid}}. If the price moves tomorrow, so does this number — only selling makes it real."
+    },
+    "fxChange": {
+      "title": "Change from exchange rates",
+      "body": "This change comes from the exchange rate, not from anything you spent or earned. Your {balance} was worth {valueThen} when recorded and is worth {valueNow} at today’s rate. The {balance} itself has not moved — only what it is worth in {reportingCurrency} has."
+    },
+    "transaction": {
+      "title": "A transaction",
+      "body": "A transaction is money moving from one place to another; nothing appears or disappears. This one moved {amount} out of {from} and into {to}. {toKind, select, expense {{to} going up is not money you have — it is the running total of what has gone there.} income {{to} is where money comes from; the same amount landed in {from}, which is yours.} liability {This paid down a debt: what you owe under {to} fell by exactly that amount.} asset {The money is still yours — it changed where it sits, not how much you have.} other {Both sides record the same amount, so the two places always agree.}}"
+    }
+  },
   "gallery": {
     "title": "Component gallery",
     "effects": {
@@ -67,6 +87,7 @@
       "skeletonBlock": "Skeleton block",
       "skeletonRegion": "Skeleton region",
       "emptyState": "Empty state",
+      "explain": "Explain",
       "region": "Region"
     },
     "fixture": {

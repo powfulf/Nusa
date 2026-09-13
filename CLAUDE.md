@@ -3197,6 +3197,106 @@ The cause was not chased. Both runs were created by GitHub in the same second
 from the same event, and nothing in this repository can produce that; it is
 recorded as an observed fact about the platform, not as something to fix.
 
+#### `<Explain>`: the promise was tested in prose before any code
+
+§7 asks for a three-sentence card *using the reader's own numbers*, and that
+is a promise that is easy to write and hard to keep — a card whose sentences
+read the same with the numbers removed is a tooltip wearing a heading. So
+before the component existed, three cards were written out in both languages,
+with the numbers rendered through the real `formatMoney` rather than typed,
+and judged on one question: does the third sentence answer a misunderstanding
+the term invites, or merely restate the definition?
+
+They do. "Paying off a loan does not change it"; "only selling makes it real";
+"the dollars have not moved, only what they are worth in Rupiah has". Each is
+something a person actually gets wrong, and none of them could be said without
+the figures in the sentence before it.
+
+**Four terms ship, and none has live numbers in M3.** That is stated plainly
+rather than implied. Net worth needs a valuation across commodities (M6);
+on-paper gain needs a market price (M6) and a rounded cost basis whose wire
+encoding is M7's decision; the exchange-rate change needs today's rate (M6).
+The fourth — a transaction as money moving between two places, the concept
+the whole product hides behind §7's vocabulary — was chosen because its
+numbers already exist on the wire: `GET /api/v1/transactions` serves the
+amount, and `GET /api/v1/accounts` serves the kind of the receiving account,
+which the card's third sentence keys on (an expense going up is not money you
+have; a liability going down is a debt paid; an asset is still yours). Its
+first screen is M4's transaction list. So M3's gallery renders every card from
+fixtures, and the contract below has been proved against the wire *shape* and
+never against a live response.
+
+> **Debt, with its trigger.** The first `<Explain>` rendered with live figures
+> is **M4**, on a transaction row. Until then the values contract — strings
+> the caller formats, a `Magnitude` where the sentence carries the direction —
+> has been tested against fixtures and the OpenAPI shape only. M4 must render
+> at least one card from a real response before adding a fifth term.
+
+**The numbers are required by the type.** `values` is keyed by `term`, so
+`<Explain term="netWorth" />` does not compile, and neither does a term handed
+another term's figures. A generic card is exactly what §7 calls "just a
+tooltip", and if it could be written it would be — the same §11 move as
+`Region`. Four `@ts-expect-error` directives in `explain.test.tsx` are the
+negative proof; making `values` optional turns exactly one of them into an
+unused-directive error, which was watched rather than assumed.
+
+**It is a popover, not a tooltip.** Three sentences are read, hover is not a
+stable reading surface, and touch has no hover. Focus moves into the card on
+open and back to the trigger on close; Escape, the close control and a click
+outside all close it; and nothing traps focus. The one subtlety worth
+recording: the focus return is conditional on focus still being inside the
+component, because a close caused by clicking somewhere else must not yank
+focus away from where the person just clicked — and the effect that returns
+it also runs on mount, so it had to be gated on an open-to-closed transition
+or the component would have stolen focus by merely appearing. Both are guarded
+in jsdom; Playwright re-checks them in a real browser (step 11).
+
+**The card overflowed at 360px, and only a browser could say so.** A card
+anchored to its trigger's inline-start edge, with the trigger sitting after a
+term near the middle of the line, ran 98px past the right edge of a 360px
+viewport. The `max-inline-size` was correct — 44 characters, capped at the
+viewport minus a gutter — and irrelevant, because the cap bounds the width and
+not the position. The card now measures itself on open and shifts along the
+inline axis to sit one gutter from the edge; the arithmetic is a pure function
+with a unit test, and the measurement is the fourth entry in the list of
+things Playwright exists for. The offset is an inline style rather than a
+token because it is a *measurement*, not a design value: whatever the
+trigger's position demands.
+
+#### Numbers in a directional sentence are absolute
+
+Found while writing the second card, before any data was real, and recorded
+as a rule rather than as an ICU detail because it applies to every directional
+message anyone writes from here on.
+
+"Today it is worth {marketValue}, which is {delta} less" reads correctly only
+if `{delta}` carries no sign. Hand it the formatter's ordinary output for a
+negative and the screen says "which is −Rp 1.250.000 less" — the sign doubled,
+once by the number and once by the word. The same shape hides in "moved
+{amount} out of {from}", "{spent} over", "down by {change}": any sentence whose
+structure already says which way a value went.
+
+> **Rule.** A value formatted for a directional sentence is absolute, and the
+> direction is carried by the message's structure — an ICU `select` on a
+> direction key, or the words "out of" and "into" — never by the string. The
+> money layer makes this a type: `formatMagnitude` returns a `Magnitude` that
+> only it can produce, and a slot in a directional sentence is typed
+> `Magnitude`, so a signed string cannot reach it without a cast. The
+> direction comes from `directionOf`, decided once beside the magnitude it
+> pairs with, so the two cannot disagree.
+
+Without the type, this is found again as a doubled minus on somebody's
+screen, in whichever message is written next.
+
+**The copy rules are a guard, not a review item.** `explain.test.tsx` walks
+both catalogues, every term, and every branch of every `select` — ten
+renderings per language — and asserts three sentences, none over twenty
+words, no placeholder left unformatted, and every number slot shown in at
+least one branch. The catalogue's own key list is the independent count
+against `EXPLAIN_TERMS`, per the §11 rule on enumerating guards. Eight breaks
+watched failing, each against the test predicted; two of them legitimately
+failed a second test as well.
+
 #### Order of work, and why
 
 1. **Guards first, each watched failing** — logical properties, tabular

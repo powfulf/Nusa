@@ -1061,6 +1061,53 @@ loading once. A screen reader must never read out forty empty elements.
 half-loaded region makes the page appear to load twice, and both of those
 shifts are the thing a skeleton exists to prevent.
 
+### Explain
+
+`CLAUDE.md` §7 requires an inline explainer on every potentially unfamiliar
+term: a small `?` that opens a three-sentence card using the reader's own
+numbers. This section composes that from specifications already on this page;
+it invents no new value.
+
+**The trigger** is an icon-only control and so carries an `aria-label`
+(§ Icons): a 16px `circle-help` glyph at the 1.5px stroke, in
+`--text-secondary`, inside a 24px box with `--radius-sm`. Hover fills the box
+with `--surface-sunken`; focus takes the standard ring. Below `md` the hit area
+is padded to 44×44px without the glyph growing (§ Responsiveness). It sits
+inline after the term it explains, separated by 4px, and never replaces the
+term — the term stays readable text, the `?` is the door.
+
+**The card** is an Elevated card (§ Cards) with 16px padding, an H4 heading
+carrying the plain-language term from §7, a Body SM body, and a 16px close
+control in the inline-end corner. Its inline size is the content's, capped at
+`--measure-narrow` and never wider than the viewport minus one `--space-md`
+gutter each side, because a 44-character card at 360px must not be cut off by
+the screen edge. It opens directly below the trigger, aligned to the trigger's
+inline-start edge, 4px away, above surrounding content.
+
+**Behaviour.** It is a popover, not a tooltip, and the difference is the
+point: three sentences are read, and hover is not a stable reading surface —
+and touch has no hover at all. So it opens on click, Enter or Space, never on
+hover; focus moves into the card when it opens and **returns to the trigger
+when it closes**; Escape, the close control and a click outside all close it;
+and the card never traps focus — Tab leaves it in document order. One card is
+open at a time.
+
+**Copy.** Exactly three sentences, none longer than twenty words (§7). The
+second sentence carries the reader's own numbers; the third answers the
+misunderstanding the term invites, rather than restating the definition. A
+card that reads correctly with its numbers removed is a tooltip and is
+rejected.
+
+**Numbers in a directional sentence are absolute.** Where a sentence says
+which way a value went — more or less, up or down, into or out of — the
+formatted amount carries no sign and the direction is carried by the message's
+structure (an ICU `select`). Otherwise "less −Rp 1.250.000" appears on
+somebody's screen with the sign doubled. The formatter's `formatMagnitude`
+returns a value the type system can tell apart from a signed one, so a signed
+amount cannot be handed to a directional slot.
+
+---
+
 ---
 
 ## Internationalization and text length

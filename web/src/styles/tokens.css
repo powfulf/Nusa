@@ -115,6 +115,12 @@
   --check-border-width: 2px;
   --radio-dot-size: 8px;
 
+  /* ---- Explain (DESIGN.md § Explain). The card takes the narrow measure
+         but never runs past the viewport minus one page gutter each side,
+         so a 44ch card at 360px is not cut off by the screen edge. ---- */
+  --explain-trigger-size: 24px;
+  --explain-card-max-inline: min(var(--measure-narrow), calc(100vw - 2 * var(--space-md)));
+
   /* ---- Tooltips (DESIGN.md § Tooltips) ---- */
   --tooltip-max-width: 240px;
   --tooltip-padding-block: 6px;

@@ -211,3 +211,28 @@ export function formatMoney(money: Money, registry: Registry, options: FormatOpt
   // only honest presentation is the code as a unit.
   return digits + NBSP + commodity.code
 }
+
+/**
+ * A formatted amount that carries no sign. Nothing but `formatMagnitude`
+ * produces one, so a slot typed `Magnitude` cannot be handed a signed string.
+ *
+ * DESIGN.md § Explain: in a sentence that says which way a value went — more
+ * or less, into or out of — the direction is carried by the message's
+ * structure and the number is absolute, or "less -Rp 1.250.000" ends up on
+ * somebody's screen with the sign doubled. The brand is what turns that rule
+ * from a convention into a compile error.
+ */
+export type Magnitude = string & { readonly [magnitudeBrand]: true }
+declare const magnitudeBrand: unique symbol
+
+export function formatMagnitude(money: Money, registry: Registry, options: FormatOptions): Magnitude {
+  return formatMoney(money.abs(), registry, options) as Magnitude
+}
+
+/** The direction a directional sentence needs, decided once, beside the magnitude it pairs with. */
+export type Direction = 'up' | 'down' | 'flat'
+
+export function directionOf(money: Money): Direction {
+  if (money.isZero()) return 'flat'
+  return money.isNegative() ? 'down' : 'up'
+}

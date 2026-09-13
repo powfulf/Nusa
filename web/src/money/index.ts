@@ -11,7 +11,7 @@ export type { MoneyJSON } from './money'
 export { Registry, UnknownCommodityError } from './commodity'
 export type { Commodity, CommodityKind } from './commodity'
 
-export { formatMoney, formatDigits, unitFor } from './format'
-export type { FormatOptions } from './format'
+export { formatMoney, formatDigits, unitFor, formatMagnitude, directionOf } from './format'
+export type { FormatOptions, Magnitude, Direction } from './format'
 
 export { parseMoney, MoneyParseError, PrecisionError } from './parse'

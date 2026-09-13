@@ -156,6 +156,7 @@ export default {
         'btn-lg-inline': 'var(--button-lg-padding-inline)',
         check: 'var(--check-size)',
         'radio-dot': 'var(--radio-dot-size)',
+        'explain-trigger': 'var(--explain-trigger-size)',
         tooltip: 'var(--tooltip-max-width)',
         'tooltip-block': 'var(--tooltip-padding-block)',
         'tooltip-inline': 'var(--tooltip-padding-inline)',
@@ -191,6 +192,7 @@ export default {
         prose: 'var(--measure-prose)',
         narrow: 'var(--measure-narrow)',
         shell: 'var(--measure-shell)',
+        explain: 'var(--explain-card-max-inline)',
       },
 
       // A pulse rather than a shimmer: a shimmer is a travelling gradient, and
