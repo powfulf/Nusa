@@ -218,6 +218,12 @@
      ellipsising, and the bar grows with it. The md override is in the media
      query below. (DESIGN.md § Top bar) */
   --topbar-height: 56px;
+
+  /* ---- Navigation (DESIGN.md § Navigation). The bottom bar's height is the
+         56px the rest of the below-md chrome already uses; the safe-area
+         inset is added on top of it in index.css, never folded into it. ---- */
+  --bottombar-height: 56px;
+  --sidebar-width: 240px;
 }
 
 /*

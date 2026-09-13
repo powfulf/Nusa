@@ -153,6 +153,19 @@ for (const absolute of files) {
       if (/style=\{\{/.test(text)) {
         report(file, line, text, 'inline style — visual values belong to tokens')
       }
+      // 3a. The imperative route to the same place. `el.style.x = '13px'` is
+      //     an inline style that the JSX rule above cannot see, and it was
+      //     found in the corpus rather than predicted: <Explain> positions
+      //     its card by MEASURING where the trigger is and writing the offset
+      //     back, which is legitimate — a measurement is not a design value —
+      //     and slipped past the rule unremarked. So the exception is stated
+      //     rather than left invisible: an assignment whose value is a
+      //     LITERAL with a unit is refused; a template or an expression (a
+      //     computed offset) is not. This is the narrowest shape that lets a
+      //     measurement through and stops a design value.
+      if (/\.style\.[A-Za-z]+\s*=\s*['"]-?\d*\.?\d+(px|rem|em|pt|vh|vw|ch)['"]/.test(text)) {
+        report(file, line, text, 'literal length assigned to element.style — a design value belongs to tokens; only a measurement may be written back')
+      }
     }
 
     // 3b. A breakpoint written as a number in a stylesheet. The screens block

@@ -99,5 +99,28 @@
   },
   "skeleton": {
     "loading": "Memuat"
+  },
+  "nav": {
+    "label": "Navigasi utama",
+    "overview": "Ringkasan",
+    "transactions": "Transaksi",
+    "accounts": "Rekening",
+    "envelopes": "Amplop",
+    "settings": "Pengaturan"
+  },
+  "notYet": {
+    "heading": "{screen} belum ada di sini",
+    "explanation": "Layar ini hadir di rilis berikutnya. Tidak ada yang hilang dari catatan Anda."
+  },
+  "settings": {
+    "effects": {
+      "label": "Kurangi efek visual",
+      "description": "Meratakan bayangan dan menghentikan gerakan. Warna, jarak, dan huruf tetap.",
+      "systemReduced": "Sistem Anda sudah meminta gerakan dikurangi, jadi gerakan mati apa pun pilihannya."
+    },
+    "density": {
+      "label": "Baris rapat",
+      "description": "Baris lebih rapat di layar besar. Ukuran huruf tidak berubah."
+    }
   }
 }

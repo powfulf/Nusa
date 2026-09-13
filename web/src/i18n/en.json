@@ -99,5 +99,28 @@
   },
   "skeleton": {
     "loading": "Loading"
+  },
+  "nav": {
+    "label": "Main navigation",
+    "overview": "Overview",
+    "transactions": "Transactions",
+    "accounts": "Accounts",
+    "envelopes": "Envelopes",
+    "settings": "Settings"
+  },
+  "notYet": {
+    "heading": "{screen} is not here yet",
+    "explanation": "This screen arrives in a later release. Nothing you record elsewhere is lost."
+  },
+  "settings": {
+    "effects": {
+      "label": "Reduce visual effects",
+      "description": "Flattens shadows and stops motion. Colour, spacing and type stay as they are.",
+      "systemReduced": "Your system already asks for less motion, so motion is off either way."
+    },
+    "density": {
+      "label": "Dense rows",
+      "description": "Tighter rows on larger screens. Type size never changes."
+    }
   }
 }

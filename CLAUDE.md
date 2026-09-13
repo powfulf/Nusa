@@ -3086,6 +3086,29 @@ The first is a specificity interaction between two correct utilities. The
 second is a spec that is correct as drawn and wrong as built. **Both classes
 recur**, and there is no layer below a real layout engine that can see either.
 
+Two more since, recorded where they were found and listed here so the count
+stays in one place:
+
+3. **The wrapped button** — the growth was reasoned as +18/+20px and measured
+   as 47/55/64px, because the single-line height already carried slack.
+   (*Two `DESIGN.md` defects a real browser showed*, above.)
+4. **The Explain card overflowed at 360px by 98px.** Its `max-inline-size` was
+   correct and irrelevant, because a cap bounds the width and not the
+   position — the card was anchored to a trigger sitting after a term in the
+   middle of the line. That sentence is the diagnosis to keep: the next person
+   would otherwise check a value that was already right. The fix measures the
+   trigger's position on open and shifts the card; the offset is written as an
+   inline style because it is a *measurement*, not a design value, and
+   `lint:tokens` now says so — rule 3a refuses a literal length assigned to
+   `element.style` and lets a computed one through, so the exception is
+   stated rather than invisible. (*`<Explain>`*, above.)
+5. **A rule in the components layer lost to a utility.** The page's
+   block-end clearance for the bottom bar was written in `@layer components`
+   and measured at 32px where 88px was specified: the page's own `py-xl`
+   utility beat it, because the utilities layer wins by design. Moved to
+   `@layer utilities`. Vitest asserted the class was present and could not
+   know it did nothing. (*The application shell*, below.)
+
 #### The fifth control byte, and the first one that broke something
 
 The four earlier instances — a UTF-16 `.gitignore`, CRLF working files, six
@@ -3296,6 +3319,138 @@ least one branch. The catalogue's own key list is the independent count
 against `EXPLAIN_TERMS`, per the §11 rule on enumerating guards. Eight breaks
 watched failing, each against the test predicted; two of them legitimately
 failed a second test as well.
+
+#### An effect that runs on mount when it was written for a transition
+
+Recorded as a shape rather than as the `<Explain>` bug it first appeared as,
+because it is a class of React mistake that recurs and its consequence is
+always the same: something that should happen only *in response* happens
+merely because the component *exists*.
+
+`<Explain>` returns focus to its trigger when the card closes. The effect that
+does so depends on `open`, and an effect that depends on `open` also runs on
+mount, when `open` is `false` for the first time. So the component focused its
+trigger the moment it rendered — every `?` on a page fighting for focus, the
+last one winning, the reader's caret gone. In a focus component that is stolen
+focus; in another it is a request sent, a navigation triggered, an analytics
+event fired, a form submitted, on appearance rather than on the event the code
+was written for.
+
+> **Rule.** An effect written for a *transition* must be gated on the
+> transition, not on the current value. `if (!open)` is true on mount;
+> `if (wasOpen.current && !open)` is true only on the way from open to closed.
+> Keep the previous value in a ref, and before trusting any effect ask what it
+> does on its very first run — the answer is usually "the same thing", and
+> that is usually wrong. The AppShell's sticky top bar and the preferences
+> binding were both written with that question asked first.
+
+#### The application shell
+
+Top bar, content, bottom bar below `md`, sidebar from `md`; settings with the
+two toggles and the language; every destination routed. The primitives meet
+the 360px floor here, and most of what is worth recording was found by
+measuring rather than by reading.
+
+**The swap is two class pairs and nothing else.** `md:hidden` on the bar,
+`hidden md:flex` on the sidebar; both are always in the tree and CSS decides
+which one paints. No state, no resize listener, nothing to lag a frame behind
+the viewport, and nothing to animate. Measured at 767 and 768 rather than at
+360 and 1200 — a layout can be right at both ends and wrong in the middle —
+and the bar, the sidebar and the top bar's settings action all flip between
+those two widths and nowhere else.
+
+**Four in the bottom bar, not five, and settings goes to the top.** At 360px
+five items leave each about 69px and "Transactions" at 12px does not fit; four
+leave 87px and every label in both languages sits on one line — measured, and
+now a catalogue constraint in `DESIGN.md` § Navigation. Settings is the rarely
+used destination § Responsiveness already sends to the top of the screen, so
+below `md` it is the top bar's one icon action, and the sidebar lists it last.
+Items are 87×56 with a 4px gap, so two adjacent 44px targets are never
+contiguous.
+
+**Safe areas are added, never folded in.** Each edge's inset is padding inside
+the piece — top bar, bottom bar, sidebar, and the page for the inline edges —
+so the inset region is painted in the piece's own fill and a phone with none
+is unchanged. What a desktop browser can measure is that the `calc()` with an
+`env()` inside it parses and applies: the page's clearance for the bottom bar
+came out at 88px (56 + 0 + 32), which it would not have if the expression had
+been dropped as invalid. Non-zero insets are a Playwright measurement on a
+device profile (step 11). One thing is stated for Phase 1.5: `safe-area-inset-left`
+and `-right` are physical names because a notch is where the hardware put it,
+applied through logical properties — and under RTL the two names must swap.
+
+**`lint:floor` produced its fourth false positive on those insets.**
+`env(safe-area-inset-left)` contains `inset-left`, and the pattern anchored on
+a word boundary read it as the physical property. It is not one; it has no
+logical spelling. The pattern is now anchored on a non-word, non-hyphen
+character. Four false positives from one guard, every one found by real code
+after the second list was thought complete — the corpus keeps being the
+codebase.
+
+**A screen that does not exist yet is not an empty state.** The instruction
+was that placeholders use the specified empty state and that a spec which
+cannot cover an unbuilt page is a finding. It cannot, and the reason is in
+`DESIGN.md` § Empty states now: an empty state makes two claims — the reader's
+data is empty, and the one action will do something — and an unbuilt screen
+can make neither. The shell has fetched nothing, so "you have no transactions"
+is a guess about somebody's money; and a button that leads nowhere teaches
+that the big button sometimes does nothing, which is a worse lesson than a
+plain sentence. So an unbuilt destination shows a not-yet notice: the empty
+state's icon, heading and explanation geometry with no action, saying the
+screen is not here yet and that nothing recorded elsewhere is lost. A
+statement about the product, not about the reader's money, and the two do not
+share a shape that carries a button.
+
+**Reduced motion versus the toggle: the system wins, as a union.** The
+question was who wins when the system asks for reduced motion and the toggle
+is off. Answer, in `DESIGN.md` § Motion: both declarations only ever take
+away — the system stops motion, the toggle stops motion and flattens
+elevation — so they combine as a union and neither restores anything. With
+the toggle off and the system on, motion stops and shadows stay: an
+accessibility need declared at the operating-system level is never overridden
+by an application setting that happens to be off. It is a rule about the two
+declarations and not an accident of which block comes last, and
+`reduced.test.ts` makes it one: it reads both blocks out of `tokens.css` and
+refuses any declaration that is not a duration set to zero or, in the
+toggle's block, an elevation set to the hairline — so a block that set a
+duration back to anything would fail, whichever order the blocks were in. The
+settings screen also says so when it is true: with the system already asking
+for less motion, the toggle's description adds that motion is off either way,
+because a control that appears to govern something it does not is a lie the
+person discovers by watching nothing change.
+
+**Preferences persist, and are applied before the first paint.** Zustand,
+adopted at its first use for the reason TanStack Query was adopted at the
+first fetch — it is the §3 tool for UI state and replacing a hand store in M4
+is churn — with the persist middleware. `bindPreferencesToRoot` runs in
+`main.tsx` before React renders, so the first frame already carries the
+stored attributes; a page that renders with shadows and flattens them a frame
+later has done the one thing a reduced-effects setting exists to prevent.
+Measured: toggle both, reload, both attributes on the root and both boxes
+checked. Density is stored at every width and takes effect from `md`
+(`--row-height` reads 40px at 768 and 56px at 767 with dense on), because the
+preference belongs to the person and not the device.
+
+**The store's reload test arranged its own answer on the first draft.** It
+reset the in-memory state to the defaults and rehydrated, expecting the
+stored values back — but every `setState` is persisted, so the reset had also
+overwritten storage, and rehydration read the defaults it had just written.
+The §11 shape: the test would pass with `rehydrate` deleted, because the
+arrangement produced the result. Fixed by capturing the stored bytes before the
+reset and putting them back before rehydrating, which is what a reload reads.
+
+**Fifteen breaks, each watched against the predicted test.** One prediction
+named the wrong *text* — the shell test's custom assertion message does not
+reach vitest's summary line for `toBeUndefined` — while both predicted tests
+went red; recorded, not widened.
+
+**Environment: the break harness died on a check mark.** The console here is
+cp1252, and vitest prints U+2713; the harness crashed printing a mismatch's
+output after restoring the file and before the summary. It now sets its own
+stdout to UTF-8. The restore was verified by digest before the crash, and the
+tree was confirmed clean afterwards, so nothing reached the working copy — but
+a harness that dies between restore and report is one report away from being
+trusted for a run it did not finish.
 
 #### Order of work, and why
 

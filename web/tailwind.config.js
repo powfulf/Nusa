@@ -140,6 +140,8 @@ export default {
         'row-inline': 'var(--row-padding-inline)',
         touch: 'var(--touch-target)',
         topbar: 'var(--topbar-height)',
+        bottombar: 'var(--bottombar-height)',
+        sidebar: 'var(--sidebar-width)',
         input: 'var(--input-height)',
         'input-block': 'var(--input-padding-block)',
         'input-inline': 'var(--input-padding-inline)',

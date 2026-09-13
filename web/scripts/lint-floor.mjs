@@ -140,9 +140,16 @@ const utilityPattern = new RegExp(
  * wolf — which is worse than not having it. Nothing is lost by the narrowing,
  * because a physical offset written into a component would be an inline style,
  * and `lint:tokens` already refuses those outright.
+ *
+ * The property names are anchored on a non-word, non-hyphen character rather
+ * than a word boundary. `env(safe-area-inset-left)` contains `inset-left`, and
+ * it is not a physical property: it is the name the platform gives a notch,
+ * which is where the hardware put it, and it has no logical spelling. The
+ * fourth false positive from this guard, found by the shell's safe-area
+ * rules — real code again, after the second list was thought complete.
  */
 const cssPropertyPattern =
-  /\b(?:margin|padding|border|scroll-margin|scroll-padding|inset)-(?:left|right)\b|\bborder-(?:top|bottom)-(?:left|right)-radius\b|text-align\s*:\s*(?:left|right)\b|float\s*:\s*(?:left|right)\b/
+  /(?<![\w-])(?:margin|padding|border|scroll-margin|scroll-padding|inset)-(?:left|right)\b|\bborder-(?:top|bottom)-(?:left|right)-radius\b|text-align\s*:\s*(?:left|right)\b|float\s*:\s*(?:left|right)\b/
 const cssOffsetPattern = /(?:^|[;{\s])(?:left|right)\s*:/
 
 /*

@@ -375,6 +375,19 @@ happen — they just happen at once. Nothing conveys information by movement
 alone, so nothing is lost. This is honoured globally, so no component has to
 remember it.
 
+**The system preference and the "reduce visual effects" toggle combine as a
+union, and neither ever restores what the other removed.** The system
+preference stops motion. The toggle stops motion *and* flattens elevation. With
+the toggle off and the system asking for reduced motion, motion stops and
+shadows stay — the system wins, because an accessibility need declared at the
+operating-system level is never overridden by an application setting that
+happens to be off. With the toggle on and the system saying nothing, motion
+stops and shadows flatten — the toggle exists for people whose system has no
+such setting, or who want the flatter surface as well. This is a rule about the
+two declarations, not a consequence of which block comes last in the
+stylesheet: each block only ever sets a duration to zero, so their order cannot
+matter, and a guard refuses either block setting anything else.
+
 ---
 
 ## Responsiveness
@@ -955,6 +968,67 @@ notch never reveals the page colour running behind the bar.
 
 ---
 
+### Navigation
+
+§ Responsiveness says where navigation lives — a bottom bar below `md`, a
+persistent sidebar at `md` and above, swapped at one breakpoint with no state
+between and no animation. This section is the geometry, composed from values
+already on this page; the one new value is the sidebar's width.
+
+**Bottom bar** (below `md` only)
+
+| Property | Value |
+| --- | --- |
+| Position | fixed to the block-end edge, full-bleed |
+| Height | **minimum** 56px, plus `env(safe-area-inset-bottom)` as block-end padding |
+| Fill | `--surface-default`, painted under the inset too, so the home indicator never shows the page colour |
+| Border | block-start 1px `--border-subtle` |
+| Items | **at most four**, equal width, 4px apart |
+| Item anatomy | 24px icon over a Caption (12px/500) label, stacked and centred |
+| Hit area | the whole item, at least 44×44px |
+| Inactive | icon and label `--text-muted` |
+| Active | icon and label `--text-primary`, a 2px block-start bar in `--brand-content`, `aria-current="page"` |
+| Hover | `--surface-base` |
+| Focus | the standard ring, inset — the bar's edge clips an outset one |
+
+Four is the ceiling for the same reason two is the ceiling on the top bar: at
+360px a fifth item leaves each label about 69px, and "Transactions" at 12px
+does not fit. Settings is not a fifth item — it is the rarely used destination
+§ Responsiveness sends to the top of the screen, so below `md` it is an icon
+action on the top bar. **A bottom-bar label fits on one line at 360px in every
+shipped language.** That is a catalogue constraint, measured rather than
+assumed: a label that wraps in a 56px bar collides with its own icon, and the
+fix is a shorter word, never a smaller type size.
+
+The page's block-end padding adds the bar's height and the inset, so the last
+row of a list is never hidden under it.
+
+**Sidebar** (`md` and above)
+
+| Property | Value |
+| --- | --- |
+| Width | `--sidebar-width`, **240px** |
+| Position | sticky, full viewport height, at the inline-start edge; inline-start padding adds `env(safe-area-inset-left)` |
+| Fill | `--surface-default` |
+| Border | inline-end 1px `--border-subtle` |
+| Wordmark | the product name as text, H3, `--text-primary`, padding 24px 16px, at the top. This is where § Top bar says the wordmark lives |
+| Items | 48px rows (the list row at `md`), padding 8px 16px, 24px icon then a Body label, 8px apart |
+| Inactive | `--text-muted` |
+| Active | `--text-primary` on `--control-selected`, a 2px inline-start bar in `--brand-content` — the selected list row's mark — and `aria-current="page"` |
+| Hover | `--surface-base` |
+| Settings | last, pushed to the block-end of the sidebar, separated from the destinations above it |
+
+The active mark is a bar and a word as well as a colour, per the floor: colour
+is never the sole carrier.
+
+**The swap.** The bottom bar is present below `md` and absent from `md`; the
+sidebar is the reverse. There is no width at which both are present and none at
+which both are absent — measured one pixel either side of the breakpoint, not
+at 360px and 1200px, because a layout can be correct at both ends and wrong in
+the middle.
+
+---
+
 ### Empty states
 
 `CLAUDE.md` §7 makes these normative: every empty state teaches something and
@@ -992,6 +1066,18 @@ teach something without the explanation growing past two sentences.
 fetch is a false statement about someone's money. Empty is a conclusion;
 loading is the absence of one. The only permitted progression is
 skeleton → (empty | content), never empty → content.
+
+**Never used for a screen that does not exist yet.** An empty state makes two
+claims: that the reader's data is empty, and that the one action offered will
+do something. A screen the product has not built can make neither — the shell
+has not fetched anything, so "you have no transactions" is a guess, and a
+button that leads nowhere teaches the reader that the big button sometimes does
+nothing. So an unbuilt destination shows a **not-yet notice**: the same icon,
+heading and explanation geometry as above, in the narrow measure, centred, with
+*no* action — the heading says the screen is not here yet, and the explanation
+says nothing recorded elsewhere is lost. It is a statement about the product,
+not about the reader's money, and the two must not share a shape that carries
+a button.
 
 **Never shown for a failed request.** Empty means there is nothing; failed
 means we do not know. A failure carries the error message pattern — with an

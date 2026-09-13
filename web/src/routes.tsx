@@ -1,9 +1,24 @@
 import { createBrowserRouter, type RouteObject } from 'react-router'
 
-import { App } from './App'
+import { NotYet } from './screens/NotYet'
+import { Overview } from './screens/Overview'
+import { Settings } from './screens/Settings'
+import { AppShell } from './shell/AppShell'
+import { DESTINATIONS } from './shell/navigation'
 
 /**
  * The route table.
+ *
+ * Every destination in `DESTINATIONS` has a route here, and shell.test.tsx
+ * checks the two lists agree in both directions — a destination with no
+ * route is a dead link, and a route with no destination is unreachable. Each
+ * route carries its title key in `handle`, which is where the top bar reads
+ * the page title from.
+ *
+ * Destinations the product has not built render <NotYet>, never an empty
+ * state (DESIGN.md § Empty states): the shell has fetched nothing, so it
+ * cannot claim anybody's data is empty, and a button that leads nowhere is a
+ * lie about the big button.
  *
  * The gallery is registered only in development mode, and loaded lazily. Both
  * halves matter: `import.meta.env.MODE` is replaced with a string literal at
@@ -20,8 +35,22 @@ import { App } from './App'
  * version of this file used DEV; the check's own "reads nothing" guard is what
  * caught it, on its first run.
  */
+const built: Readonly<Record<string, () => React.JSX.Element>> = {
+  '/': () => <Overview />,
+  '/settings': () => <Settings />,
+}
+
+export const shellRoutes: RouteObject[] = DESTINATIONS.map((d) => {
+  const render = built[d.path]
+  return {
+    path: d.path,
+    element: render !== undefined ? render() : <NotYet screenKey={d.labelKey} />,
+    handle: { titleKey: d.labelKey },
+  }
+})
+
 const routes: RouteObject[] = [
-  { path: '/', element: <App /> },
+  { path: '/', element: <AppShell />, children: shellRoutes },
   ...(import.meta.env.MODE === 'development'
     ? [
         {

@@ -187,6 +187,48 @@
 }
 
 /*
+ * The application shell (DESIGN.md § Top bar, § Navigation, § Responsiveness).
+ *
+ * Safe areas are ADDED to padding the piece already has, so on a screen with
+ * no notch and no home indicator nothing changes; on one with them the inset
+ * region is painted in the piece's own fill because the padding is inside it.
+ *
+ * `safe-area-inset-left` and `-right` are physical names because a notch is
+ * where the hardware puts it, not where the writing direction does. They are
+ * applied through LOGICAL properties so the floor's rule holds — and under RTL
+ * the two names must swap (start is right there), which is a Phase 1.5 item
+ * recorded here so it is not discovered as a clipped sidebar.
+ */
+@layer utilities {
+  .safe-top {
+    padding-block-start: env(safe-area-inset-top);
+  }
+  .safe-bottom {
+    padding-block-end: env(safe-area-inset-bottom);
+  }
+  .safe-start {
+    padding-inline-start: env(safe-area-inset-left);
+  }
+  .safe-end {
+    padding-inline-end: env(safe-area-inset-right);
+  }
+
+  /* Below md the bottom bar is fixed over the page, so the page's own
+     block-end padding grows by the bar plus the inset it clears: the last
+     row of a list is never hidden under it. At md the bar is gone.
+
+     These live in the utilities layer, not components: measured at 360px,
+     the same rule in the components layer lost to the page's own `py-xl`
+     utility and the padding stayed at 32px — the layer order is what decides,
+     and a rule that must beat a utility has to be one. */
+  @media not all and (min-width: theme('screens.md')) {
+    .clears-bottombar {
+      padding-block-end: calc(var(--bottombar-height) + env(safe-area-inset-bottom) + var(--space-xl));
+    }
+  }
+}
+
+/*
  * Honoured globally so no component has to remember it. Nothing here conveys
  * information by movement alone, so collapsing motion loses nothing.
  */

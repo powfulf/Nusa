@@ -4,9 +4,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { RouterProvider } from 'react-router'
 
+import { bindPreferencesToRoot } from './preferences/store'
 import { router } from './routes'
 import './i18n'
 import './index.css'
+
+// Before the first render, so the first paint already carries the stored
+// preferences: a page that renders with shadows and flattens them a frame
+// later has done the one thing a reduced-effects setting exists to prevent.
+bindPreferencesToRoot(document.documentElement)
 
 const queryClient = new QueryClient({
   defaultOptions: {
